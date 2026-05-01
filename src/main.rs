@@ -5,8 +5,6 @@ mod handlers;
 
 use handler_tree::handler_tree;
 
-type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
 #[derive(BotCommands, Clone, Debug)]
 #[command(
     rename_rule = "lowercase",
@@ -15,6 +13,12 @@ type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 pub enum Command {
     #[command(description = "display this text.")]
     Help,
+}
+
+#[derive(Default, Clone, Debug)]
+pub enum State {
+    #[default]
+    Start,
 }
 
 #[tokio::main]
