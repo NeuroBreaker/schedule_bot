@@ -1,18 +1,13 @@
 use crate::{
-    bot::{Command, State},
-    handler_tree::MyDialogue,
-    inline_keyboards::get_institute_markup,
+    bot::{Command, State}, db::init_db, handler_tree::MyDialogue, inline_keyboards::get_institute_markup
 };
 use std::error::Error;
+use sqlx::PgPool;
 use teloxide::{prelude::*, utils::command::BotCommands};
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
-struct User {
-
-}
-
-pub async fn message_handler(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
+pub async fn message_handler(bot: Bot, dialogue: MyDialogue, msg: Message, pool: PgPool) -> HandlerResult {
     let unrecognized_command_text = "Unrecognized command. Say what?";
     let user_text = msg.text().unwrap_or("");
 
@@ -21,7 +16,7 @@ pub async fn message_handler(bot: Bot, dialogue: MyDialogue, msg: Message) -> Ha
             bot.send_dice(msg.chat.id).await?;
         }
         "узнать расписание" => {
-            institute_handler(bot, msg).await?;
+            institute_handler(bot, msg, pool).await?;
         }
         _ => {
             if user_text.starts_with('/') {
@@ -62,8 +57,8 @@ pub async fn drop_dice(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-pub async fn institute_handler(bot: Bot, msg: Message) -> HandlerResult {
-    let keyboard = get_institute_markup(bot.clone(), msg.clone()).await?;
+pub async fn institute_handler(bot: Bot, msg: Message, pool: PgPool) -> HandlerResult {
+    let keyboard = get_institute_markup(&pool).await?;
 
     bot.send_message(msg.chat.id, "Выберите свой институт")
         .reply_markup(keyboard)
