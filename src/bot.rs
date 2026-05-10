@@ -1,4 +1,4 @@
-use std::{error::Error, process};
+use std::{error::Error};
 
 use crate::{db::init_db, handler_tree::handler_tree};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
@@ -10,20 +10,28 @@ pub enum Command {
     Help,
     #[command(description = "display this text.")]
     Start,
-    //#[command(description = "cancel the current operation")]
-    //Cancel,
+    #[command(description = "cancel command")]
+    Cancel,
     #[command(description = "choose your institute and group")]
-    Institute,
-    #[command(description = "get your schedule")]
+    Setup,
+    #[command(description = "get your week schedule")]
     Schedule,
-    #[command(description = "drop the dice")]
-    Dice,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct User {
+    pub institute: String,
+    pub course: String,
+    pub group: String,
 }
 
 #[derive(Default, Clone, Debug)]
 pub enum State {
     #[default]
     Start,
+    AwaitingInstitute,
+    AwaitingCourse(User),
+    AwaitingGroup(User),
 }
 
 pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
