@@ -1,18 +1,14 @@
 use reqwest::Client;
-use scraper::{Html, Selector};
+use scraper::{Html, Selector, ElementRef};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::error::Error;
 
-#[derive(Debug)]
+#[derive(Default, Debug)]
 struct Faculty {
     name: String,
+    course: u8,
+    group: String,
     url: String,
-}
-
-impl Faculty {
-    fn new(name: String, url: String) -> Faculty {
-        Faculty { name, url }
-    }
 }
 
 pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync>> {
@@ -22,9 +18,16 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
 
     sqlx::query(
         r#"
-        CREATE TABLE IF NOT EXISTS faculties (
+        CREATE TABLE IF NOT EXISTS Users (
+            id BIGINT,
+            faculty INTEGER REFERENCES faculties(id)
+        )
+
+        CREATE TABLE faculties (
             id SERIAL PRIMARY KEY,
             name TEXT NOT NULL,
+            course INT NOT NULL,
+            group TEXT NOT NULL,
             url TEXT NOT NULL UNIQUE
         );
         "#
@@ -32,13 +35,13 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
     .execute(&pool)
     .await?;
 
-    get_facults(&pool).await?;
+    get_faculties(&pool).await?;
 
     log::info!("Проверка/создание таблицы завершено.");
     Ok(pool)
 }
 
-pub async fn get_facults(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn get_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
     let url = "https://ssau.ru/rasp";
     let base_url = "https://ssau.ru";
 
@@ -66,11 +69,9 @@ pub async fn get_facults(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Syn
         let full_url = format!("{}{}", base_url, link);
 
         if !name.is_empty() {
-            sqlx::query("INSERT INTO faculties (name, url) VALUES ($1, $2) ON CONFLICT (url) DO NOTHING")
-                .bind(&name)
-                .bind(&full_url)
-                .execute(pool)
-                .await?;
+            let faculty = Faculty { name: name.clone(), ..Default::default() };
+
+            get_course(&full_url, faculty, &mut count, &client, pool);
 
             count += 1;
         }
@@ -81,6 +82,24 @@ pub async fn get_facults(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Syn
     Ok(())
 }
 
-async fn get_course(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+async fn get_course(url: &str, faculty: Faculty, count: &mut i32, client: &Client, pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let response = client.get(url).send().await?.text().await?;
+    let document = Html::parse_document(&response);
+    let selector = Selector::parse("").unwrap();
+
+    for element in document.select(&selector) {
+
+    }
+
+    sqlx::query("INSERT INTO faculties (name, url) VALUES ($1, $2) ON CONFLICT (url) DO NOTHING")
+        .bind(&faculty.name)
+        .bind(&faculty.url)
+        .execute(pool)
+        .await?;
+
+    Ok(())
+}
+
+async fn get_group(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
     Ok(())
 }

@@ -1,5 +1,5 @@
 use crate::{
-    bot::{Command, State}, db::init_db, handler_tree::MyDialogue, inline_keyboards::get_institute_markup
+    bot::{Command, State, User}, db::init_db, handler_tree::MyDialogue, inline_keyboards::get_institute_markup
 };
 use std::error::Error;
 use sqlx::PgPool;
@@ -12,11 +12,8 @@ pub async fn message_handler(bot: Bot, dialogue: MyDialogue, msg: Message, pool:
     let user_text = msg.text().unwrap_or("");
 
     match &*user_text.trim().to_lowercase() {
-        "бросить кубик" => {
-            bot.send_dice(msg.chat.id).await?;
-        }
-        "узнать расписание" => {
-            institute_handler(bot, msg, pool).await?;
+        "выбрать институт" => {
+            institute_handler(bot, dialogue, msg).await?;
         }
         _ => {
             if user_text.starts_with('/') {
@@ -36,7 +33,6 @@ pub async fn start_handler(bot: Bot, msg: Message) -> HandlerResult {
     let mut start_message = format!("Приветствую, {}!\n\
         Я бот для просмотра расписания СамГУ\n\n\
         Помимо комманд, доступны фразы(не зависят от регистра):\n\n\
-        бросить кубик\n\
         узнать расписание\n\n",
         msg.from.unwrap().first_name);
 
@@ -47,30 +43,32 @@ pub async fn start_handler(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
-//pub async fn cancel_handler(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
-//    dialogue.exit().await?;
-//    Ok(())
-//}
-
-pub async fn drop_dice(bot: Bot, msg: Message) -> HandlerResult {
-    bot.send_dice(msg.chat.id).await?;
+pub async fn cancel_handler(dialogue: MyDialogue) -> HandlerResult {
+    dialogue.exit().await?;
     Ok(())
 }
 
-pub async fn institute_handler(bot: Bot, msg: Message, pool: PgPool) -> HandlerResult {
+pub async fn institute_handler(bot: Bot, dialogue: MyDialogue, pool: PgPool, msg: Message) -> HandlerResult {
     let keyboard = get_institute_markup(&pool).await?;
 
     bot.send_message(msg.chat.id, "Выберите свой институт")
         .reply_markup(keyboard)
         .await?;
+    
+    let mut user = User { ..Default::default() };
+    dialogue.update(State::AwaitingCourse(user));
 
+    Ok(())
+}
+
+pub async fn course_handler(bot: Bot, msg: Message) -> HandlerResult {
+    Ok(())
+}
+
+pub async fn group_handler(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
 
 pub async fn schedule_handler(bot: Bot, msg: Message) -> HandlerResult {
     Ok(())
 }
-
-//pub async fn wait_institute(bot: Bot, dialogue: MyDialogue, q: CallbackQuery) -> HandlerResult {
-//    Ok(())
-//}
