@@ -10,18 +10,18 @@ pub enum Command {
     Help,
     #[command(description = "display this text.")]
     Start,
-    #[command(description = "cancel the current operation")]
+    #[command(description = "cancel command")]
     Cancel,
     #[command(description = "choose your institute and group")]
-    Institute,
-    #[command(description = "get your schedule")]
+    Setup,
+    #[command(description = "get your week schedule")]
     Schedule,
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct User {
     pub institute: String,
-    pub course: u8,
+    pub course: String,
     pub group: String,
 }
 
@@ -29,6 +29,7 @@ pub struct User {
 pub enum State {
     #[default]
     Start,
+    AwaitingInstitute,
     AwaitingCourse(User),
     AwaitingGroup(User),
 }
