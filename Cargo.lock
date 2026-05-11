@@ -2318,19 +2318,16 @@ dependencies = [
 
 [[package]]
 name = "schedule_bot"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dotenv",
  "log",
  "pretty_env_logger",
  "reqwest 0.13.3",
  "scraper",
- "serde",
- "serde_json",
  "sqlx",
  "teloxide",
  "tokio",
- "url",
 ]
 
 [[package]]
