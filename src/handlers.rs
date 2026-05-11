@@ -1,7 +1,7 @@
 use crate::{
     bot::{Command, State, User},
     handler_tree::MyDialogue,
-    inline_keyboards::{courses_keyboard, groups_keyboard, instituts_keyboard}, schedule::week,
+    inline_keyboards::{courses_keyboard, groups_keyboard, instituts_keyboard, week_keyboard}, schedule::week,
 };
 use sqlx::{PgPool, Row};
 use std::error::Error;
@@ -200,10 +200,12 @@ pub async fn schedule_handler(
     msg: Message,
     pool: PgPool
 ) -> HandlerResult {
+    let keyboard = week_keyboard().await?;
     let user_id = msg.from.as_ref().unwrap().id.0 as i64;
     let result = week(user_id, &pool).await?;
 
     bot.send_message(msg.chat.id, result)
+        .reply_markup(keyboard)
         .parse_mode(ParseMode::Html)
         .await?;
 

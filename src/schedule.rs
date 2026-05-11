@@ -37,7 +37,6 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
         let response = client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
 
-        // Селекторы
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
         let time_item_selector = Selector::parse(".schedule__time-item").unwrap();
         let lesson_selector = Selector::parse(".schedule__lesson").unwrap();
