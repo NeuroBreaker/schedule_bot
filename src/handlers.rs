@@ -5,7 +5,7 @@ use crate::{
 };
 use sqlx::{PgPool, Row};
 use std::error::Error;
-use teloxide::{prelude::*, utils::command::BotCommands};
+use teloxide::{prelude::*, types::{LinkPreviewOptions, ParseMode}, utils::command::BotCommands};
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
 
@@ -51,8 +51,20 @@ pub async fn start_handler(bot: Bot, msg: Message) -> HandlerResult {
     );
 
     start_message += &*help_text;
+    
+    start_message += 
+        "\n\nДля тех, кто хочет помочь с разработкой бота:\n\
+        https://github.com/NeuroBreaker/schedule_bot";
 
-    bot.send_message(msg.chat.id, start_message).await?;
+    bot.send_message(msg.chat.id, start_message)
+        .link_preview_options(LinkPreviewOptions {
+            is_disabled: true,
+            url: None,
+            prefer_small_media: false,
+            prefer_large_media: false,
+            show_above_text: false,
+        })
+        .await?;
 
     Ok(())
 }
@@ -191,6 +203,9 @@ pub async fn schedule_handler(
     let user_id = msg.from.as_ref().unwrap().id.0 as i64;
     let result = week(user_id, &pool).await?;
 
-    bot.send_message(msg.chat.id, result).await?;
+    bot.send_message(msg.chat.id, result)
+        .parse_mode(ParseMode::Html)
+        .await?;
+
     Ok(())
 }
