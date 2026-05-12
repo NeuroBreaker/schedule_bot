@@ -1,6 +1,6 @@
-use std::{error::Error};
+use std::error::Error;
 
-use crate::{db::init_db, handler_tree::handler_tree};
+use crate::{db::init_db, handler_tree::handler_tree, handlers::User, schedule::Date};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
 
 #[derive(BotCommands, Clone, Debug)]
@@ -19,19 +19,14 @@ pub enum Command {
 }
 
 #[derive(Default, Clone, Debug)]
-pub struct User {
-    pub institute: String,
-    pub course: String,
-    pub group: String,
-}
-
-#[derive(Default, Clone, Debug)]
 pub enum State {
     #[default]
     Start,
     AwaitingInstitute,
     AwaitingCourse(User),
     AwaitingGroup(User),
+    WeekSchedule(Date),
+    DaySchedule(Date),
 }
 
 pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
@@ -42,18 +37,15 @@ pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     let bot = Bot::from_env();
 
-    let db_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set in .env or environment");
+    let db_url =
+        std::env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env or environment");
 
     let pool = init_db(&db_url).await?;
 
     let storage = InMemStorage::<State>::new();
 
     Dispatcher::builder(bot, handler_tree())
-        .dependencies(dptree::deps![
-            pool,
-            storage
-        ])
+        .dependencies(dptree::deps![pool, storage])
         .enable_ctrlc_handler()
         .build()
         .dispatch()

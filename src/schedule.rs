@@ -3,6 +3,62 @@ use scraper::{Html, Selector};
 use sqlx::{PgPool, Row};
 use std::error::Error;
 
+#[derive(Default, Clone, Debug)]
+pub struct Week {
+    pub current: u16,
+    pub choosen: u16,
+}
+
+impl Week {
+    pub fn new() -> Week {
+        Week {
+            current: 0,
+            choosen: 0,
+        }
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Day {
+    pub current: u16,
+    pub choosen: u16,
+}
+
+impl Day {
+    pub fn new() -> Day {
+        Day {
+            current: 0,
+            choosen: 0,
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Date {
+    pub week: Week,
+    pub day: Day,
+}
+
+impl Date {
+    pub fn new() -> Date {
+        Date {
+            week: Week::new(),
+            day: Day::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Lesson {
+    time: String,
+    discipline: String,
+    place: String,
+    teacher: String,
+    subgroup: String,
+    lesson_type: String,
+}
+
+
 pub async fn get_user_url(pool: &PgPool, user_id: i64) -> Result<Option<String>, sqlx::Error> {
     let row = sqlx::query(
         r#"
@@ -19,18 +75,8 @@ pub async fn get_user_url(pool: &PgPool, user_id: i64) -> Result<Option<String>,
     Ok(row.map(|r| r.get("url")))
 }
 
-#[derive(Clone, Debug)]
-struct Lesson {
-    time: String,
-    discipline: String,
-    place: String,
-    teacher: String,
-    subgroup: String,
-    lesson_type: String,
-}
-
 // Return Result<String> of week schedule for html parsing
-pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error + Send + Sync>> {
+pub async fn week(user_id: i64, date: &Date, pool: &PgPool) -> Result<String, Box<dyn Error + Send + Sync>> {
     let client = Client::new();
 
     let result = if let Some(url) = get_user_url(pool, user_id).await? {
@@ -47,7 +93,7 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
         let type_selector = Selector::parse(".schedule__lesson-type-chip").unwrap();
 
         let mut weekly_storage: Vec<Vec<Lesson>> = vec![vec![]; 6];
-        let mut current_time = String::new();
+        let mut lesson_time = String::new();
         let mut day_index = 0;
 
         for element in document.select(&container_selector) {
@@ -59,7 +105,7 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
                     .map(|e| e.text().collect::<String>().trim().to_string())
                     .collect();
                 if times.len() >= 2 {
-                    current_time = format!("{} - {}", times[0], times[1]);
+                    lesson_time = format!("{} - {}", times[0], times[1]);
                 }
                 day_index = 0;
                 continue;
@@ -95,7 +141,7 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
 
                         if let Some(day_storage) = weekly_storage.get_mut(day_index) {
                             day_storage.push(Lesson {
-                                time: current_time.clone(),
+                                time: lesson_time.clone(),
                                 discipline,
                                 place,
                                 teacher,
@@ -115,7 +161,7 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
         for (i, day_lessons) in weekly_storage.iter().enumerate() {
             if day_lessons.is_empty() { continue; }
 
-            schedule_text.push_str(&format!("┌─────── {} ───────┐\n", day_names[i]));
+            schedule_text.push_str(&format!("         {}\n", day_names[i]));
             
             for lesson in day_lessons {
                 schedule_text.push_str(&format!("<b>{}</b> ({})\n{}\n", lesson.discipline, lesson.lesson_type, lesson.place));
@@ -130,7 +176,7 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
                 }
                 schedule_text.push('\n');
             }
-            schedule_text.push('\n');
+            schedule_text.push_str("────────────────────\n");
         }
 
         if schedule_text.is_empty() {
@@ -143,4 +189,10 @@ pub async fn week(user_id: i64, pool: &PgPool) -> Result<String, Box<dyn Error +
     };
 
     Ok(result)
+}
+
+pub async fn day(
+) -> Result<String, Box<dyn Error + Send + Sync>> {
+    let mut schedule_text = String::new();
+    Ok(schedule_text)
 }

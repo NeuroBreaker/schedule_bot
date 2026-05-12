@@ -1,13 +1,27 @@
 use crate::{
-    bot::{Command, State, User},
+    bot::{Command, State},
     handler_tree::MyDialogue,
-    inline_keyboards::{courses_keyboard, groups_keyboard, instituts_keyboard, week_keyboard}, schedule::week,
+    inline_keyboards::{
+        courses_keyboard, day_keyboard, groups_keyboard, instituts_keyboard, week_keyboard,
+    },
+    schedule::{self, Date},
 };
 use sqlx::{PgPool, Row};
 use std::error::Error;
-use teloxide::{prelude::*, types::{LinkPreviewOptions, ParseMode}, utils::command::BotCommands};
+use teloxide::{
+    prelude::*,
+    types::{LinkPreviewOptions, ParseMode},
+    utils::command::BotCommands,
+};
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;
+
+#[derive(Default, Clone, Debug)]
+pub struct User {
+    institute: String,
+    course: String,
+    group: String,
+}
 
 pub async fn message_handler(
     bot: Bot,
@@ -23,7 +37,7 @@ pub async fn message_handler(
             setup_handler(bot, dialogue, msg, pool).await?;
         }
         "узнать расписание" => {
-            schedule_handler(bot, msg, pool).await?;
+            schedule_handler(bot, dialogue, msg, pool).await?;
         }
         _ => {
             if user_text.starts_with('/') {
@@ -51,9 +65,8 @@ pub async fn start_handler(bot: Bot, msg: Message) -> HandlerResult {
     );
 
     start_message += &*help_text;
-    
-    start_message += 
-        "\n\nДля тех, кто хочет помочь с разработкой бота:\n\
+
+    start_message += "\n\nДля тех, кто хочет помочь с разработкой бота:\n\
         https://github.com/NeuroBreaker/schedule_bot";
 
     bot.send_message(msg.chat.id, start_message)
@@ -110,13 +123,15 @@ pub async fn institute_callback_handler(
 
             let keyboard = courses_keyboard(&pool, &institute_name).await?;
 
-            if let Some(msg) = q.message
-            {
-                bot.edit_message_text(msg.chat().id, msg.id(), format!("Институт: {}\nВыберите курс", institute_name))
-                    .reply_markup(keyboard)
-                    .await?;
+            if let Some(msg) = q.message {
+                bot.edit_message_text(
+                    msg.chat().id,
+                    msg.id(),
+                    format!("Институт: {}\nВыберите курс", institute_name),
+                )
+                .reply_markup(keyboard)
+                .await?;
             }
-
 
             let user = User {
                 institute: institute_name,
@@ -141,12 +156,10 @@ pub async fn course_callback_handler(
         user.course = data;
         let keyboard = groups_keyboard(&pool, &user.institute, &user.course).await?;
 
-        if let Some(msg) = q.message
-        {
+        if let Some(msg) = q.message {
             bot.edit_message_text(msg.chat().id, msg.id(), "Выберите группу")
                 .reply_markup(keyboard)
                 .await?;
-
 
             dialogue.update(State::AwaitingGroup(user)).await?;
         }
@@ -174,7 +187,7 @@ pub async fn group_callback_handler(
                     FROM faculties
                     WHERE name = $2 AND course = $3 AND "group" = $4
                     ON CONFLICT (id) DO UPDATE SET faculty_id = EXCLUDED.faculty_id
-                "#
+                "#,
             )
             .bind(q.from.id.0 as i64)
             .bind(&user.institute)
@@ -184,30 +197,109 @@ pub async fn group_callback_handler(
             .await?;
 
             dialogue.exit().await?;
-            bot.edit_message_text(msg.chat().id, msg.id(), "Настройка успешно завершена").await?;
+            bot.edit_message_text(msg.chat().id, msg.id(), "Настройка успешно завершена")
+                .await?;
         }
     }
 
-
     bot.answer_callback_query(q.id)
-        .text("Настройка закончена, можете узнать расписание\n\n\
-            /schedule\n  или\nузнать расписание").await?;
+        .text(
+            "Настройка закончена, можете узнать расписание\n\n\
+            /schedule\n  или\nузнать расписание",
+        )
+        .await?;
     Ok(())
 }
 
 pub async fn schedule_handler(
     bot: Bot,
+    dialogue: MyDialogue,
     msg: Message,
-    pool: PgPool
+    pool: PgPool,
 ) -> HandlerResult {
-    let keyboard = week_keyboard().await?;
-    let user_id = msg.from.as_ref().unwrap().id.0 as i64;
-    let result = week(user_id, &pool).await?;
+    let date = Date::new();
 
-    bot.send_message(msg.chat.id, result)
+    let user_id = msg.from.as_ref().unwrap().id.0 as i64;
+    let schedule = schedule::week(user_id, &date, &pool).await?;
+
+    let keyboard = week_keyboard().await?;
+    bot.send_message(msg.chat.id, schedule)
         .reply_markup(keyboard)
         .parse_mode(ParseMode::Html)
         .await?;
 
+    dialogue.update(State::WeekSchedule(date)).await?;
+
+    Ok(())
+}
+
+pub async fn week_schedule_callback_handler(
+    bot: Bot,
+    dialogue: MyDialogue,
+    q: CallbackQuery,
+    date: Date,
+) -> HandlerResult {
+    if let Some(msg) = q.message
+        && let Some(data) = q.data
+    {
+        match &*data {
+            "previous week" => {}
+            "current week" => {}
+            "next week" => {}
+            "day" => {
+                let keyboard = day_keyboard().await?;
+
+                bot.edit_message_text(msg.chat().id, msg.id(), "Расписание на день")
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::DaySchedule(date)).await?;
+            }
+            _ => (),
+        }
+    }
+
+    bot.answer_callback_query(q.id).await?;
+    Ok(())
+}
+
+pub async fn day_schedule_callback_handler(
+    bot: Bot,
+    dialogue: MyDialogue,
+    q: CallbackQuery,
+    pool: PgPool,
+    mut date: Date,
+) -> HandlerResult {
+    if let Some(msg) = q.message
+        && let Some(data) = q.data
+    {
+        match &*data {
+            "previous day" => {
+                date.day.choosen -= 1;
+                bot.send_message(msg.chat().id, format!("Previuos day schedule ({})", date.day.choosen)).await?;
+            }
+            "current day" => {}
+            "next day" => {
+                date.day.choosen += 1;
+                bot.send_message(msg.chat().id, format!("Next day schedule ({})", date.day.choosen)).await?;
+            }
+            "week" => {
+                let keyboard = week_keyboard().await?;
+                let user_id = q.from.id.0 as i64;
+                let schedule = schedule::week(user_id, &date, &pool).await?;
+
+                bot.edit_message_text(msg.chat().id, msg.id(), schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::WeekSchedule(date)).await?;
+            }
+            _ => (),
+        }
+    }
+
+    bot.answer_callback_query(q.id).await?;
     Ok(())
 }
