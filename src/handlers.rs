@@ -237,6 +237,7 @@ pub async fn week_schedule_callback_handler(
     bot: Bot,
     dialogue: MyDialogue,
     q: CallbackQuery,
+    pool: PgPool,
     date: Date,
 ) -> HandlerResult {
     if let Some(msg) = q.message
@@ -248,8 +249,10 @@ pub async fn week_schedule_callback_handler(
             "next week" => {}
             "day" => {
                 let keyboard = day_keyboard().await?;
+                let user_id = q.from.id.0 as i64;
+                let schedule = schedule::day(user_id, &date, &pool).await?;
 
-                bot.edit_message_text(msg.chat().id, msg.id(), "Расписание на день")
+                bot.edit_message_text(msg.chat().id, msg.id(), schedule)
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
                     .await?;
