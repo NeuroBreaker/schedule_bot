@@ -76,33 +76,29 @@ pub async fn groups_keyboard(
     Ok(InlineKeyboardMarkup::new(keyboard))
 }
 
-pub async fn week_keyboard(
-) ->Result<InlineKeyboardMarkup, Box<dyn Error + Send + Sync>> {
-    let keyboard: [ Vec<InlineKeyboardButton>; 2] = [
+pub async fn week_keyboard() -> Result<InlineKeyboardMarkup, Box<dyn Error + Send + Sync>> {
+    let keyboard: [Vec<InlineKeyboardButton>; 3] = [
         vec![
-            InlineKeyboardButton::callback("<", "previous week"),
-            InlineKeyboardButton::callback("0", "current week"),
-            InlineKeyboardButton::callback(">", "next week"),
+            InlineKeyboardButton::callback("≺", "previous week"),
+            InlineKeyboardButton::callback("↺", "current week"),
+            InlineKeyboardButton::callback("≻", "next week"),
         ],
-        vec![
-            InlineKeyboardButton::callback("День", "day")
-        ]
+        vec![InlineKeyboardButton::callback("День", "day")],
+        vec![InlineKeyboardButton::callback("Сегодня", "today")],
     ];
 
     Ok(InlineKeyboardMarkup::new(keyboard))
 }
 
-pub async fn day_keyboard(
-) ->Result<InlineKeyboardMarkup, Box<dyn Error + Send + Sync>> {
-    let keyboard: [ Vec<InlineKeyboardButton>; 2] = [
+pub async fn day_keyboard() -> Result<InlineKeyboardMarkup, Box<dyn Error + Send + Sync>> {
+    let keyboard: [Vec<InlineKeyboardButton>; 3] = [
         vec![
-            InlineKeyboardButton::callback("<", "previous day"),
-            InlineKeyboardButton::callback("0", "current day"),
-            InlineKeyboardButton::callback(">", "next day"),
+            InlineKeyboardButton::callback("≺", "previous day"),
+            InlineKeyboardButton::callback("↺", "current day"),
+            InlineKeyboardButton::callback("≻", "next day"),
         ],
-        vec![
-            InlineKeyboardButton::callback("Неделя", "week")
-        ]
+        vec![InlineKeyboardButton::callback("Неделя", "week")],
+        vec![InlineKeyboardButton::callback("Эта неделя", "this_week")],
     ];
 
     Ok(InlineKeyboardMarkup::new(keyboard))

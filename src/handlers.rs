@@ -279,13 +279,13 @@ pub async fn day_schedule_callback_handler(
     {
         match &*data {
             "previous day" => {
-                date.day.choosen -= 1;
-                bot.send_message(msg.chat().id, format!("Previuos day schedule ({})", date.day.choosen)).await?;
+                date.day.current -= 1;
+                bot.send_message(msg.chat().id, format!("Previuos day schedule ({})", date.day.current)).await?;
             }
             "current day" => {}
             "next day" => {
-                date.day.choosen += 1;
-                bot.send_message(msg.chat().id, format!("Next day schedule ({})", date.day.choosen)).await?;
+                date.day.current += 1;
+                bot.send_message(msg.chat().id, format!("Next day schedule ({})", date.day.current)).await?;
             }
             "week" => {
                 let keyboard = week_keyboard().await?;

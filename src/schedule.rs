@@ -6,30 +6,22 @@ use std::error::Error;
 #[derive(Default, Clone, Debug)]
 pub struct Week {
     pub current: u16,
-    pub choosen: u16,
 }
 
 impl Week {
     pub fn new() -> Week {
-        Week {
-            current: 0,
-            choosen: 0,
-        }
+        Week { current: 0 }
     }
 }
 
 #[derive(Default, Clone, Debug)]
 pub struct Day {
     pub current: u16,
-    pub choosen: u16,
 }
 
 impl Day {
     pub fn new() -> Day {
-        Day {
-            current: 0,
-            choosen: 0,
-        }
+        Day { current: 0 }
     }
 }
 
@@ -219,7 +211,10 @@ pub async fn day(
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let client = Client::new();
 
-    let result = if let Some(url) = get_user_url(pool, user_id).await? {
+    let result = if let Some(mut url) = get_user_url(pool, user_id).await? {
+        if date.week.current != 0 {
+            url += &format!("&selectedWeek={}", date.week.current);
+        }
         let response = client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
 
