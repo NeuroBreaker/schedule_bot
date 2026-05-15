@@ -4,7 +4,8 @@ use crate::{
     inline_keyboards::{
         courses_keyboard, day_keyboard, groups_keyboard, instituts_keyboard, week_keyboard,
     },
-    schedule::{self, Date},
+    schedule::{Date, Schedule},
+    utils::get_user_url,
 };
 use sqlx::{PgPool, Row};
 use std::error::Error;
@@ -29,7 +30,7 @@ pub async fn message_handler(
     msg: Message,
     pool: PgPool,
 ) -> HandlerResult {
-    let unrecognized_command_text = "Unrecognized command. Say what?";
+    let unrecognized_command_text = "Неизвестная команда, введите /help для просмотра доступных";
     let user_text = msg.text().unwrap_or("");
 
     match &*user_text.trim().to_lowercase() {
@@ -217,13 +218,19 @@ pub async fn schedule_handler(
     msg: Message,
     pool: PgPool,
 ) -> HandlerResult {
-    let date = Date::new();
+    let mut date = Date::new();
 
     let user_id = msg.from.as_ref().unwrap().id.0 as i64;
-    let schedule = schedule::week(user_id, &date, &pool).await?;
+
+    let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+        let schedule = Schedule::new(url, &mut date).await?;
+        schedule.get_week().await
+    } else {
+        "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+    };
 
     let keyboard = week_keyboard().await?;
-    bot.send_message(msg.chat.id, schedule)
+    bot.send_message(msg.chat.id, week_schedule)
         .reply_markup(keyboard)
         .parse_mode(ParseMode::Html)
         .await?;
@@ -238,21 +245,104 @@ pub async fn week_schedule_callback_handler(
     dialogue: MyDialogue,
     q: CallbackQuery,
     pool: PgPool,
-    date: Date,
+    mut date: Date,
 ) -> HandlerResult {
     if let Some(msg) = q.message
         && let Some(data) = q.data
     {
+        let user_id = q.from.id.0 as i64;
         match &*data {
-            "previous week" => {}
-            "current week" => {}
-            "next week" => {}
-            "day" => {
-                let keyboard = day_keyboard().await?;
-                let user_id = q.from.id.0 as i64;
-                let schedule = schedule::day(user_id, &date, &pool).await?;
+            "previous week" => {
+                if date.week > 1 {
+                    date.week -= 1;
+                }
 
-                bot.edit_message_text(msg.chat().id, msg.id(), schedule)
+                let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_week().await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = week_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::WeekSchedule(date)).await?;
+            }
+            "update week" => {
+                let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_week().await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = week_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::WeekSchedule(date)).await?;
+            }
+            "next week" => {
+                if date.week <= 65534 {
+                    date.week += 1
+                }
+
+                let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_week().await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = week_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::WeekSchedule(date)).await?;
+            }
+            "this week" => {
+                let mut date = Date::new();
+                let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_week().await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                if week_schedule
+                    != msg
+                        .regular_message()
+                        .unwrap()
+                        .text()
+                        .unwrap_or("")
+                {
+                    let keyboard = week_keyboard().await?;
+                    bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
+                        .reply_markup(keyboard)
+                        .parse_mode(ParseMode::Html)
+                        .await?;
+                }
+
+                dialogue.update(State::WeekSchedule(date)).await?;
+            }
+            "day" => {
+                let day_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_day(date.weekday).await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = day_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), day_schedule)
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
                     .await?;
@@ -277,39 +367,104 @@ pub async fn day_schedule_callback_handler(
     if let Some(msg) = q.message
         && let Some(data) = q.data
     {
+        let user_id = q.from.id.0 as i64;
+
         match &*data {
             "previous day" => {
-                date.day -= 1;
-                bot.send_message(msg.chat().id, format!("Previuos day schedule ({})", date.day)).await?;
+                if date.weekday == 1 {
+                    date.weekday = 7;
+                    date.week -= 1;
+                } else {
+                    date.weekday -= 1;
+                }
+
+                let day_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_day(date.weekday).await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = day_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), day_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::DaySchedule(date)).await?;
             }
-            "current day" => {}
+            "update day" => {
+                let day_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_day(date.weekday).await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = day_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), day_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::DaySchedule(date)).await?;
+            }
             "next day" => {
-                date.day += 1;
-                bot.send_message(msg.chat().id, format!("Next day schedule ({})", date.day)).await?;
+                if date.weekday == 7 {
+                    date.weekday = 1;
+                    date.week += 1;
+                } else {
+                    date.weekday += 1;
+                }
+
+                let day_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_day(date.weekday).await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = day_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), day_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::DaySchedule(date)).await?;
+            }
+            "today" => {
+                let mut date = Date::new();
+
+                let day_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_day(date.weekday).await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
+
+                let keyboard = day_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), day_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::DaySchedule(date)).await?;
             }
             "week" => {
-                let keyboard = week_keyboard().await?;
-                let user_id = q.from.id.0 as i64;
-                let schedule = schedule::week(user_id, &date, &pool).await?;
+                let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
+                    let schedule = Schedule::new(url, &mut date).await?;
+                    schedule.get_week().await
+                } else {
+                    "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
+                };
 
-                bot.edit_message_text(msg.chat().id, msg.id(), schedule)
+                let keyboard = week_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
                     .reply_markup(keyboard)
                     .parse_mode(ParseMode::Html)
                     .await?;
 
                 dialogue.update(State::WeekSchedule(date)).await?;
-            }
-            "this_week" => {
-                let keyboard = week_keyboard().await?;
-                let user_id = q.from.id.0 as i64;
-                let schedule = schedule::week(user_id, &date, &pool).await?;
-
-                bot.edit_message_text(msg.chat().id, msg.id(), schedule)
-                    .reply_markup(keyboard)
-                    .parse_mode(ParseMode::Html)
-                    .await?;
-
-                dialogue.update(State::WeekSchedule(Date::new())).await?;
             }
             _ => (),
         }
