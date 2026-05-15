@@ -75,3 +75,31 @@ pub async fn groups_keyboard(
 
     Ok(InlineKeyboardMarkup::new(keyboard))
 }
+
+pub async fn week_keyboard() -> Result<InlineKeyboardMarkup, Box<dyn Error + Send + Sync>> {
+    let keyboard: [Vec<InlineKeyboardButton>; 3] = [
+        vec![
+            InlineKeyboardButton::callback("≺", "previous week"),
+            InlineKeyboardButton::callback("↺", "update week"),
+            InlineKeyboardButton::callback("≻", "next week"),
+        ],
+        vec![InlineKeyboardButton::callback("Эта неделя", "this week")],
+        vec![InlineKeyboardButton::callback("День", "day")],
+    ];
+
+    Ok(InlineKeyboardMarkup::new(keyboard))
+}
+
+pub async fn day_keyboard() -> Result<InlineKeyboardMarkup, Box<dyn Error + Send + Sync>> {
+    let keyboard: [Vec<InlineKeyboardButton>; 3] = [
+        vec![
+            InlineKeyboardButton::callback("≺", "previous day"),
+            InlineKeyboardButton::callback("↺", "update day"),
+            InlineKeyboardButton::callback("≻", "next day"),
+        ],
+        vec![InlineKeyboardButton::callback("Сегодня", "today")],
+        vec![InlineKeyboardButton::callback("Неделя", "week")],
+    ];
+
+    Ok(InlineKeyboardMarkup::new(keyboard))
+}
