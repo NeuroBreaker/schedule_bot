@@ -279,13 +279,13 @@ pub async fn day_schedule_callback_handler(
     {
         match &*data {
             "previous day" => {
-                date.day.current -= 1;
-                bot.send_message(msg.chat().id, format!("Previuos day schedule ({})", date.day.current)).await?;
+                date.day -= 1;
+                bot.send_message(msg.chat().id, format!("Previuos day schedule ({})", date.day)).await?;
             }
             "current day" => {}
             "next day" => {
-                date.day.current += 1;
-                bot.send_message(msg.chat().id, format!("Next day schedule ({})", date.day.current)).await?;
+                date.day += 1;
+                bot.send_message(msg.chat().id, format!("Next day schedule ({})", date.day)).await?;
             }
             "week" => {
                 let keyboard = week_keyboard().await?;
@@ -298,6 +298,18 @@ pub async fn day_schedule_callback_handler(
                     .await?;
 
                 dialogue.update(State::WeekSchedule(date)).await?;
+            }
+            "this_week" => {
+                let keyboard = week_keyboard().await?;
+                let user_id = q.from.id.0 as i64;
+                let schedule = schedule::week(user_id, &date, &pool).await?;
+
+                bot.edit_message_text(msg.chat().id, msg.id(), schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
+                dialogue.update(State::WeekSchedule(Date::new())).await?;
             }
             _ => (),
         }

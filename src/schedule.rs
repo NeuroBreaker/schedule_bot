@@ -1,42 +1,18 @@
+use chrono::{DateTime, Local};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use sqlx::{PgPool, Row};
 use std::error::Error;
 
 #[derive(Default, Clone, Debug)]
-pub struct Week {
-    pub current: u16,
-}
-
-impl Week {
-    pub fn new() -> Week {
-        Week { current: 0 }
-    }
-}
-
-#[derive(Default, Clone, Debug)]
-pub struct Day {
-    pub current: u16,
-}
-
-impl Day {
-    pub fn new() -> Day {
-        Day { current: 0 }
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct Date {
-    pub week: Week,
-    pub day: Day,
+    pub week: i16,
+    pub day: i16,
 }
 
 impl Date {
     pub fn new() -> Date {
-        Date {
-            week: Week::new(),
-            day: Day::new(),
-        }
+        Date { week: 0, day: 0 }
     }
 }
 
@@ -74,11 +50,15 @@ pub async fn week(
 ) -> Result<String, Box<dyn Error + Send + Sync>> {
     let client = Client::new();
 
-    let result = if let Some(url) = get_user_url(pool, user_id).await? {
+    let result = if let Some(mut url) = get_user_url(pool, user_id).await? {
+        if date.week != 0 {
+            url += &format!("&selectedWeek={}", date.week);
+        }
+
         let response = client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
-
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
+        let date_item_selector = Selector::parse(".weekday-nav__item").unwrap();
         let time_item_selector = Selector::parse(".schedule__time-item").unwrap();
         let lesson_selector = Selector::parse(".schedule__lesson").unwrap();
         let disc_selector = Selector::parse(".schedule__discipline").unwrap();
@@ -155,15 +135,20 @@ pub async fn week(
             }
         }
 
-        let day_names = [
-            "ПОНЕДЕЛЬНИК",
-            "ВТОРНИК",
-            "СРЕДА",
-            "ЧЕТВЕРГ",
-            "ПЯТНИЦА",
-            "СУББОТА",
-        ];
+        let mut day_names = vec![];
+        for element in document.select(&date_item_selector) {
+            let day = element.text().collect::<String>().trim().to_string();
+
+            day_names.push(day);
+        }
+
         let mut schedule_text = String::new();
+
+        if date.week == 0 {
+            let local: DateTime<Local> = Local::now();
+            date.week = local.weekday();
+            date.day = ;
+        }
 
         schedule_text.push_str("────────────────────\n");
         for (i, day_lessons) in weekly_storage.iter().enumerate() {
@@ -171,8 +156,7 @@ pub async fn week(
                 continue;
             }
 
-            schedule_text.push_str(&format!("         {}\n", day_names[i]));
-
+            schedule_text.push_str(&format!("{}\n", day_names[i].to_uppercase()));
             for lesson in day_lessons {
                 schedule_text.push_str(&format!(
                     "<b>{}</b> ({})\n{}\n",
@@ -212,13 +196,14 @@ pub async fn day(
     let client = Client::new();
 
     let result = if let Some(mut url) = get_user_url(pool, user_id).await? {
-        if date.week.current != 0 {
-            url += &format!("&selectedWeek={}", date.week.current);
+        if date.week != 0 {
+            url += &format!("&selectedWeek={}", date.week);
         }
+
         let response = client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
-
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
+        let date_item_selector = Selector::parse(".weekday-nav__item").unwrap();
         let time_item_selector = Selector::parse(".schedule__time-item").unwrap();
         let lesson_selector = Selector::parse(".schedule__lesson").unwrap();
         let disc_selector = Selector::parse(".schedule__discipline").unwrap();
@@ -295,31 +280,37 @@ pub async fn day(
             }
         }
 
+        let mut day_names = vec![];
+        for element in document.select(&date_item_selector) {
+            let day = element.text().collect::<String>().trim().to_string();
+
+            day_names.push(day);
+        }
+
         let mut schedule_text = String::new();
 
-        schedule_text.push_str("────────────────────\n");
-        let day_lessons = weekly_storage.get(1);
+        for (i, day_lessons) in weekly_storage.iter().enumerate() {
+            if day_names[i].contains(&date.day.to_string()) {
+                schedule_text.push_str(&format!("\n"));
 
-        if let Some(day_lessons) = day_lessons {
-            schedule_text.push_str(&format!("         Число\n"));
+                for lesson in day_lessons {
+                    schedule_text.push_str(&format!(
+                        "<b>{}</b> ({})\n{}\n",
+                        lesson.discipline, lesson.lesson_type, lesson.place
+                    ));
+                    schedule_text.push_str(&format!("      🕒 {}\n", lesson.time));
 
-            for lesson in day_lessons {
-                schedule_text.push_str(&format!(
-                    "<b>{}</b> ({})\n{}\n",
-                    lesson.discipline, lesson.lesson_type, lesson.place
-                ));
-                schedule_text.push_str(&format!("      🕒 {}\n", lesson.time));
+                    if !lesson.teacher.is_empty() {
+                        schedule_text.push_str(&format!("      👤 {}\n", lesson.teacher));
+                    }
 
-                if !lesson.teacher.is_empty() {
-                    schedule_text.push_str(&format!("      👤 {}\n", lesson.teacher));
+                    if !lesson.subgroup.is_empty() {
+                        schedule_text.push_str(&format!("      👥 <i>{}</i>\n", lesson.subgroup));
+                    }
+                    schedule_text.push('\n');
                 }
-
-                if !lesson.subgroup.is_empty() {
-                    schedule_text.push_str(&format!("      👥 <i>{}</i>\n", lesson.subgroup));
-                }
-                schedule_text.push('\n');
+                schedule_text.push_str("────────────────────\n");
             }
-            schedule_text.push_str("────────────────────\n");
         }
 
         if schedule_text.is_empty() {
