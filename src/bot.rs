@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::{db::init_db, handler_tree::handler_tree, handlers::User, schedule::Date};
+use crate::{db::init_db, handler_tree::handler_tree, handlers::User, schedule::Schedule};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
 
 #[derive(BotCommands, Clone, Debug)]
@@ -25,8 +25,8 @@ pub enum State {
     AwaitingInstitute,
     AwaitingCourse(User),
     AwaitingGroup(User),
-    WeekSchedule(Date),
-    DaySchedule(Date),
+    WeekSchedule(Schedule),
+    DaySchedule(Schedule),
 }
 
 pub async fn run() -> Result<(), Box<dyn Error + Send + Sync>> {

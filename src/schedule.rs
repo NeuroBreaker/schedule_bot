@@ -32,12 +32,13 @@ struct Lesson {
 
 #[derive(Default, Clone, Debug)]
 pub struct Schedule {
+    pub date: Date,
     days: Vec<String>,
     weekly_storage: Vec<Vec<Lesson>>,
 }
 
 impl Schedule {
-    async fn parse(&mut self, url: &str, client: &Client) -> Result<Date, MyError> {
+    async fn parse(&mut self, url: &str, client: &Client) -> Result<(), MyError> {
         let response = client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
@@ -142,23 +143,22 @@ impl Schedule {
             })
             .collect();
 
-        let mut date = Date::new();
-        if date.week == 0 {
+        if self.date.week == 0 {
             let current_week_str = &document
                 .select(&week_item_selector)
                 .map(|e| e.text().collect::<String>().trim().to_string())
                 .collect::<String>()[0..2];
 
-            date.week = current_week_str.parse::<u8>().unwrap_or(0) as u16; 
+            self.date.week = current_week_str.parse::<u8>().unwrap_or(0) as u16; 
         }
 
-        Ok(date)
+        Ok(())
     }
 
     pub async fn new(
         mut url: String,
-        date: &mut Date,
     ) -> Result<Schedule, Box<dyn Error + Send + Sync>> {
+        let mut date = Date::new();
         if date.week != 0 {
             url += &format!("&selectedWeek={}", date.week);
         }
@@ -173,7 +173,7 @@ impl Schedule {
             ..Default::default()
         };
 
-        date.week = schedule.parse(&url, &client).await?.week;
+        schedule.parse(&url, &client).await?;
 
         if date.weekday == 0 {
             let local: DateTime<Local> = Local::now();
@@ -181,6 +181,29 @@ impl Schedule {
         }
 
         Ok(schedule)
+    }
+
+    async fn format_lessons(&self, schedule_text: &mut String, i: usize, day_lessons: &Vec<Lesson>) {
+        schedule_text.push_str(&format!("{}\n", self.days[i]));
+
+        for lesson in day_lessons {
+            schedule_text.push_str(&format!(
+                "<b>{}</b> ({})\n",
+                lesson.discipline, lesson.lesson_type
+            ));
+            schedule_text.push_str(&format!("      🏢 {}\n", lesson.place));
+            schedule_text.push_str(&format!("      🕒 {}\n", lesson.time));
+
+            if !lesson.teacher.is_empty() {
+                schedule_text.push_str(&format!("      👤 {}\n", lesson.teacher));
+            }
+
+            if !lesson.subgroup.is_empty() {
+                schedule_text.push_str(&format!("      👥 <i>{}</i>\n", lesson.subgroup));
+            }
+            schedule_text.push('\n');
+        }
+        schedule_text.push_str("────────────────────────────\n");
     }
 
     pub async fn get_week(&self) -> String {
@@ -191,25 +214,7 @@ impl Schedule {
                 continue;
             }
 
-            schedule_text.push_str(&format!("{}\n", self.days[i]));
-            for lesson in day_lessons {
-                schedule_text.push_str(&format!(
-                    "<b>{}</b> ({})\n",
-                    lesson.discipline, lesson.lesson_type
-                ));
-                schedule_text.push_str(&format!("      🏢 {}\n", lesson.place));
-                schedule_text.push_str(&format!("      🕒 {}\n", lesson.time));
-
-                if !lesson.teacher.is_empty() {
-                    schedule_text.push_str(&format!("      👤 {}\n", lesson.teacher));
-                }
-
-                if !lesson.subgroup.is_empty() {
-                    schedule_text.push_str(&format!("      👥 <i>{}</i>\n", lesson.subgroup));
-                }
-                schedule_text.push('\n');
-            }
-            schedule_text.push_str("────────────────────────────\n");
+            self.format_lessons(&mut schedule_text, i, day_lessons).await;
         }
 
         if schedule_text.is_empty() {
@@ -219,31 +224,12 @@ impl Schedule {
         }
     }
 
-    pub async fn get_day(&self, day: u8) -> String {
+    pub async fn get_day(&self) -> String {
         let mut schedule_text = String::new();
 
         for (i, day_lessons) in self.weekly_storage.iter().enumerate() {
-            if self.days[i].contains(&format!("{day}")) {
-                schedule_text.push_str(&format!("{}\n", self.days[i]));
-
-                for lesson in day_lessons {
-                    schedule_text.push_str(&format!(
-                        "<b>{}</b> ({})\n",
-                        lesson.discipline, lesson.lesson_type
-                    ));
-                    schedule_text.push_str(&format!("      🏢 {}\n", lesson.place));
-                    schedule_text.push_str(&format!("      🕒 {}\n", lesson.time));
-
-                    if !lesson.teacher.is_empty() {
-                        schedule_text.push_str(&format!("      👤 {}\n", lesson.teacher));
-                    }
-
-                    if !lesson.subgroup.is_empty() {
-                        schedule_text.push_str(&format!("      👥 <i>{}</i>\n", lesson.subgroup));
-                    }
-                    schedule_text.push('\n');
-                }
-                schedule_text.push_str("────────────────────────────\n");
+            if self.days[i].contains(&format!("{}", self.date.weekday)) {
+                self.format_lessons(&mut schedule_text, i, day_lessons).await;
             }
         }
 

@@ -33,8 +33,8 @@ pub fn handler_tree() -> UpdateHandler<Box<dyn Error + Send + Sync + 'static>> {
         .branch(case![State::AwaitingInstitute].endpoint(institute_callback_handler))
         .branch(case![State::AwaitingCourse(user)].endpoint(course_callback_handler))
         .branch(case![State::AwaitingGroup(user)].endpoint(group_callback_handler))
-        .branch(case![State::WeekSchedule(date)].endpoint(week_schedule_callback_handler))
-        .branch(case![State::DaySchedule(date)].endpoint(day_schedule_callback_handler));
+        .branch(case![State::WeekSchedule(schedule)].endpoint(week_schedule_callback_handler))
+        .branch(case![State::DaySchedule(schedule)].endpoint(day_schedule_callback_handler));
 
     dptree::entry()
         .branch(command_handler)

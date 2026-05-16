@@ -4,7 +4,7 @@ use crate::{
     inline_keyboards::{
         courses_keyboard, day_keyboard, groups_keyboard, instituts_keyboard, week_keyboard,
     },
-    schedule::{Date, Schedule},
+    schedule::Schedule,
     utils::get_user_url,
 };
 use sqlx::{PgPool, Row};
@@ -218,24 +218,27 @@ pub async fn schedule_handler(
     msg: Message,
     pool: PgPool,
 ) -> HandlerResult {
-    let mut date = Date::new();
-
     let user_id = msg.from.as_ref().unwrap().id.0 as i64;
 
-    let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
-        let schedule = Schedule::new(url, &mut date).await?;
-        schedule.get_week().await
+    if let Some(url) = get_user_url(&pool, user_id).await? {
+        let schedule = Schedule::new(url).await?;
+        let week_schedule = schedule.get_week().await;
+
+        let keyboard = week_keyboard().await?;
+        bot.send_message(msg.chat.id, week_schedule)
+            .reply_markup(keyboard)
+            .parse_mode(ParseMode::Html)
+            .await?;
+
+        dialogue.update(State::WeekSchedule(schedule)).await?;
     } else {
-        "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
-    };
-
-    let keyboard = week_keyboard().await?;
-    bot.send_message(msg.chat.id, week_schedule)
-        .reply_markup(keyboard)
-        .parse_mode(ParseMode::Html)
+        bot.send_message(
+            msg.chat.id,
+            "Вас нету в базе данных бота\nВведите /setup для выбора факультета",
+        )
         .await?;
-
-    dialogue.update(State::WeekSchedule(date)).await?;
+        dialogue.exit().await?;
+    };
 
     Ok(())
 }
@@ -244,21 +247,21 @@ async fn update_day_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
     pool: PgPool,
-    date: &mut Date,
     user_id: i64,
 ) -> HandlerResult {
-    let day_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
-        let schedule = Schedule::new(url, date).await?;
-        schedule.get_day(date.weekday).await
-    } else {
-        "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
-    };
+    if let Some(url) = get_user_url(&pool, user_id).await? {
+        let schedule = Schedule::new(url).await?;
+        let day_schedule = schedule.get_day().await;
 
-    let keyboard = day_keyboard().await?;
-    bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
-        .reply_markup(keyboard)
-        .parse_mode(ParseMode::Html)
-        .await?;
+        let keyboard = day_keyboard().await?;
+        bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
+            .reply_markup(keyboard)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    } else {
+        let note = "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string();
+        bot.send_message(qmsg.chat().id, note).await?;
+    }
 
     Ok(())
 }
@@ -267,21 +270,22 @@ async fn update_week_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
     pool: PgPool,
-    date: &mut Date,
     user_id: i64,
 ) -> HandlerResult {
-    let week_schedule = if let Some(url) = get_user_url(&pool, user_id).await? {
-        let schedule = Schedule::new(url, date).await?;
-        schedule.get_week().await
-    } else {
-        "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string()
-    };
+    if let Some(url) = get_user_url(&pool, user_id).await? {
+        let schedule = Schedule::new(url).await?;
+        let week_schedule = schedule.get_week().await;
 
-    let keyboard = week_keyboard().await?;
-    bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
-        .reply_markup(keyboard)
-        .parse_mode(ParseMode::Html)
-        .await?;
+        let keyboard = week_keyboard().await?;
+        bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
+            .reply_markup(keyboard)
+            .parse_mode(ParseMode::Html)
+            .await?;
+    } else {
+        let note = "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string();
+        bot.edit_message_text(qmsg.chat().id, qmsg.id(), note)
+            .await?;
+    };
 
     Ok(())
 }
@@ -291,48 +295,54 @@ pub async fn week_schedule_callback_handler(
     dialogue: MyDialogue,
     q: CallbackQuery,
     pool: PgPool,
-    mut date: Date,
+    mut schedule: Schedule,
 ) -> HandlerResult {
+    let mut notify = String::new();
     if let Some(msg) = q.message
         && let Some(data) = q.data
     {
         let user_id = q.from.id.0 as i64;
         match &*data {
             "previous week" => {
-                if date.week > 1 {
-                    date.week -= 1;
+                if schedule.date.week > 1 {
+                    schedule.date.week -= 1;
                 }
 
-                update_week_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::WeekSchedule(date)).await?;
+                update_week_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "update week" => {
-                update_week_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::WeekSchedule(date)).await?;
+                update_week_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "next week" => {
-                if date.week <= 65534 {
-                    date.week += 1
+                if schedule.date.week <= 65534 {
+                    schedule.date.week += 1
                 }
 
-                update_week_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::WeekSchedule(date)).await?;
+                update_week_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "this week" => {
-                let mut date = Date::new();
+                schedule.date.week = 0;
+                schedule.date.weekday = 0;
 
-                update_week_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::WeekSchedule(date)).await?;
+                update_week_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "day" => {
-                update_day_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::DaySchedule(date)).await?;
+                update_day_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::DaySchedule(schedule)).await?;
             }
             _ => (),
         }
     }
 
-    bot.answer_callback_query(q.id).await?;
+    if notify.is_empty() {
+        bot.answer_callback_query(q.id).await?;
+    } else {
+        bot.answer_callback_query(q.id).text(notify).await?;
+    }
     Ok(())
 }
 
@@ -341,8 +351,9 @@ pub async fn day_schedule_callback_handler(
     dialogue: MyDialogue,
     q: CallbackQuery,
     pool: PgPool,
-    mut date: Date,
+    mut schedule: Schedule,
 ) -> HandlerResult {
+    let mut notify = String::new();
     if let Some(msg) = q.message
         && let Some(data) = q.data
     {
@@ -350,45 +361,50 @@ pub async fn day_schedule_callback_handler(
 
         match &*data {
             "previous day" => {
-                if date.weekday == 1 {
-                    date.weekday = 7;
-                    date.week -= 1;
+                if schedule.date.weekday == 1 {
+                    schedule.date.weekday = 7;
+                    schedule.date.week -= 1;
                 } else {
-                    date.weekday -= 1;
+                    schedule.date.weekday -= 1;
                 }
 
-                update_day_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::DaySchedule(date)).await?;
+                update_day_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "update day" => {
-                update_day_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::DaySchedule(date)).await?;
+                update_day_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "next day" => {
-                if date.weekday == 7 {
-                    date.weekday = 1;
-                    date.week += 1;
+                if schedule.date.weekday == 7 {
+                    schedule.date.weekday = 1;
+                    schedule.date.week += 1;
                 } else {
-                    date.weekday += 1;
+                    schedule.date.weekday += 1;
                 }
 
-                update_day_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::DaySchedule(date)).await?;
+                update_day_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "today" => {
-                let mut date = Date::new();
+                schedule.date.week = 0;
+                schedule.date.weekday = 0;
 
-                update_day_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::DaySchedule(date)).await?;
+                update_day_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "week" => {
-                update_week_message(&bot, msg, pool, &mut date, user_id).await?;
-                dialogue.update(State::WeekSchedule(date)).await?;
+                update_week_message(&bot, msg, pool, user_id).await?;
+                dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             _ => (),
         }
     }
 
-    bot.answer_callback_query(q.id).await?;
+    if notify.is_empty() {
+        bot.answer_callback_query(q.id).await?;
+    } else {
+        bot.answer_callback_query(q.id).text(notify).await?;
+    }
     Ok(())
 }
