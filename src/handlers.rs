@@ -246,22 +246,15 @@ pub async fn schedule_handler(
 async fn update_day_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
-    pool: PgPool,
-    user_id: i64,
+    schedule: &mut Schedule,
 ) -> HandlerResult {
-    if let Some(url) = get_user_url(&pool, user_id).await? {
-        let schedule = Schedule::new(url).await?;
-        let day_schedule = schedule.get_day().await;
+    let day_schedule = schedule.get_day().await;
 
-        let keyboard = day_keyboard().await?;
-        bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
-            .reply_markup(keyboard)
-            .parse_mode(ParseMode::Html)
-            .await?;
-    } else {
-        let note = "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string();
-        bot.send_message(qmsg.chat().id, note).await?;
-    }
+    let keyboard = day_keyboard().await?;
+    bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
+        .reply_markup(keyboard)
+        .parse_mode(ParseMode::Html)
+        .await?;
 
     Ok(())
 }
@@ -269,23 +262,15 @@ async fn update_day_message(
 async fn update_week_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
-    pool: PgPool,
-    user_id: i64,
+    schedule: &mut Schedule,
 ) -> HandlerResult {
-    if let Some(url) = get_user_url(&pool, user_id).await? {
-        let schedule = Schedule::new(url).await?;
-        let week_schedule = schedule.get_week().await;
+    let week_schedule = schedule.get_week().await;
 
-        let keyboard = week_keyboard().await?;
-        bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
-            .reply_markup(keyboard)
-            .parse_mode(ParseMode::Html)
-            .await?;
-    } else {
-        let note = "Вас нету в базе данных бота\nВведите /setup для выбора факультета".to_string();
-        bot.edit_message_text(qmsg.chat().id, qmsg.id(), note)
-            .await?;
-    };
+    let keyboard = week_keyboard().await?;
+    bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
+        .reply_markup(keyboard)
+        .parse_mode(ParseMode::Html)
+        .await?;
 
     Ok(())
 }
@@ -308,11 +293,11 @@ pub async fn week_schedule_callback_handler(
                     schedule.date.week -= 1;
                 }
 
-                update_week_message(&bot, msg, pool, user_id).await?;
+                update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "update week" => {
-                update_week_message(&bot, msg, pool, user_id).await?;
+                update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "next week" => {
@@ -320,18 +305,18 @@ pub async fn week_schedule_callback_handler(
                     schedule.date.week += 1
                 }
 
-                update_week_message(&bot, msg, pool, user_id).await?;
+                update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "this week" => {
                 schedule.date.week = 0;
                 schedule.date.weekday = 0;
 
-                update_week_message(&bot, msg, pool, user_id).await?;
+                update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "day" => {
-                update_day_message(&bot, msg, pool, user_id).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             _ => (),
@@ -368,11 +353,11 @@ pub async fn day_schedule_callback_handler(
                     schedule.date.weekday -= 1;
                 }
 
-                update_day_message(&bot, msg, pool, user_id).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "update day" => {
-                update_day_message(&bot, msg, pool, user_id).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "next day" => {
@@ -383,18 +368,18 @@ pub async fn day_schedule_callback_handler(
                     schedule.date.weekday += 1;
                 }
 
-                update_day_message(&bot, msg, pool, user_id).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "today" => {
                 schedule.date.week = 0;
                 schedule.date.weekday = 0;
 
-                update_day_message(&bot, msg, pool, user_id).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "week" => {
-                update_week_message(&bot, msg, pool, user_id).await?;
+                update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             _ => (),

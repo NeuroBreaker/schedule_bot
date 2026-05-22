@@ -31,8 +31,15 @@ struct Lesson {
 }
 
 #[derive(Default, Clone, Debug)]
+struct SiteData {
+    url: String,
+    last_modified: String,
+}
+
+#[derive(Default, Clone, Debug)]
 pub struct Schedule {
     pub date: Date,
+    site: SiteData,
     days: Vec<String>,
     weekly_storage: Vec<Vec<Lesson>>,
 }
@@ -170,10 +177,14 @@ impl Schedule {
         let client = Client::new();
 
         let mut schedule = Schedule {
+            site: SiteData {
+                url,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
-        schedule.parse(&url, &client).await?;
+        schedule.parse(&*schedule.site.url, &client).await?;
 
         if date.weekday == 0 {
             let local: DateTime<Local> = Local::now();
