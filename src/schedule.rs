@@ -45,8 +45,8 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    async fn parse(&mut self, url: &str, client: &Client) -> Result<(), MyError> {
-        let response = client.get(url).send().await?.text().await?;
+    async fn parse(&mut self, client: &Client) -> Result<(), MyError> {
+        let response = client.get(&self.site.url).send().await?.text().await?;
         let document = Html::parse_document(&response);
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
         let date_item_selector = Selector::parse(".weekday-nav__item").unwrap();
@@ -192,6 +192,17 @@ impl Schedule {
         }
 
         Ok(schedule)
+    }
+
+    async fn push_into_db() {
+
+        sqlx::query!(r#"
+            
+            "#).unwrap();
+    }
+
+    async fn get_from_db() {
+
     }
 
     async fn format_lessons(&self, schedule_text: &mut String, i: usize, day_lessons: &Vec<Lesson>) {

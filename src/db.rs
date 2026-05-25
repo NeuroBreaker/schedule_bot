@@ -14,7 +14,7 @@ struct Faculty {
 pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync>> {
     log::info!("Начало инициализации бд");
     let pool = PgPoolOptions::new()
-        .max_connections(5)
+        .max_connections(10)
         .connect(db_url)
         .await?;
 
@@ -73,6 +73,10 @@ pub async fn get_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + S
     let selector = Selector::parse(".faculties__item a").unwrap();
 
     let mut count = 0;
+
+    document.select(&selector).map(|e| {
+        e.text().collect::<String>().trim().to_string();
+    });
 
     for element in document.select(&selector) {
         let name = element
