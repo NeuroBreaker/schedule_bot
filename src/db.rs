@@ -74,15 +74,10 @@ pub async fn get_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + S
 
     let mut count = 0;
 
-    document.select(&selector).map(|e| {
-        e.text().collect::<String>().trim().to_string();
-    });
-
     for element in document.select(&selector) {
         let name = element
             .text()
-            .collect::<Vec<_>>()
-            .join(" ")
+            .collect::<String>()
             .trim()
             .to_string();
 
@@ -120,8 +115,7 @@ async fn get_course(
     for element in document.select(&selector) {
         let course = element
             .text()
-            .collect::<Vec<_>>()
-            .join(" ")
+            .collect::<String>()
             .trim()
             .to_string();
 
@@ -154,8 +148,7 @@ async fn get_group(
     for element in document.select(&selector) {
         let group = element
             .text()
-            .collect::<Vec<_>>()
-            .join(" ")
+            .collect::<String>()
             .trim()
             .to_string();
 

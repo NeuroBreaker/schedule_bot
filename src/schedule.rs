@@ -1,6 +1,7 @@
 use chrono::{DateTime, Datelike, Local};
 use reqwest::Client;
 use scraper::{Html, Selector};
+use sqlx::PgPool;
 use std::error::Error;
 
 type MyError = Box<dyn Error + Send + Sync>;
@@ -184,7 +185,7 @@ impl Schedule {
             ..Default::default()
         };
 
-        schedule.parse(&*schedule.site.url, &client).await?;
+        schedule.parse(&client).await?;
 
         if date.weekday == 0 {
             let local: DateTime<Local> = Local::now();
@@ -194,14 +195,17 @@ impl Schedule {
         Ok(schedule)
     }
 
-    async fn push_into_db() {
-
-        sqlx::query!(r#"
+    async fn save(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query(r#"
             
-            "#).unwrap();
+        "#)
+        .execute(pool)
+        .await?;
+
+        Ok(())
     }
 
-    async fn get_from_db() {
+    async fn get_lessons(pool: &PgPool) {
 
     }
 
