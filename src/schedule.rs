@@ -1,7 +1,6 @@
-use chrono::{DateTime, Datelike, Local};
+use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use reqwest::Client;
 use scraper::{Html, Selector};
-use sqlx::PgPool;
 use std::error::Error;
 
 type MyError = Box<dyn Error + Send + Sync>;
@@ -21,7 +20,7 @@ impl Date {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 struct Lesson {
     time: String,
     discipline: String,
@@ -34,7 +33,8 @@ struct Lesson {
 #[derive(Default, Clone, Debug)]
 struct SiteData {
     url: String,
-    last_modified: String,
+    client: Client,
+    //last_modified: String,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -46,8 +46,17 @@ pub struct Schedule {
 }
 
 impl Schedule {
-    async fn parse(&mut self, client: &Client) -> Result<(), MyError> {
-        let response = client.get(&self.site.url).send().await?.text().await?;
+    async fn parse(&mut self) -> Result<(), MyError> {
+        let mut url = self.site.url.clone();
+        if self.date.week != 0 {
+            url += &format!("&selectedWeek={}", self.date.week);
+        }
+
+        if self.date.weekday != 0 {
+            url += &format!("&selectedWeekday={}", self.date.weekday);
+        }
+
+        let response = self.site.client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
         let date_item_selector = Selector::parse(".weekday-nav__item").unwrap();
@@ -157,59 +166,64 @@ impl Schedule {
                 .map(|e| e.text().collect::<String>().trim().to_string())
                 .collect::<String>()[0..2];
 
-            self.date.week = current_week_str.parse::<u8>().unwrap_or(0) as u16; 
+            self.date.week = current_week_str.parse::<u8>().unwrap_or(0) as u16;
         }
 
         Ok(())
     }
 
-    pub async fn new(
-        mut url: String,
-    ) -> Result<Schedule, Box<dyn Error + Send + Sync>> {
+    pub async fn new(url: String) -> Result<Schedule, Box<dyn Error + Send + Sync>> {
         let mut date = Date::new();
-        if date.week != 0 {
-            url += &format!("&selectedWeek={}", date.week);
-        }
 
-        if date.weekday != 0 {
-            url += &format!("&selectedWeekday={}", date.weekday);
+        if date.weekday == 0 {
+            let offset = FixedOffset::east_opt(4 * 60 * 60).unwrap();
+            let timezone: DateTime<FixedOffset> = Utc::now().with_timezone(&offset);
+            date.weekday = timezone.weekday() as u8 + 1;
         }
-
-        let client = Client::new();
 
         let mut schedule = Schedule {
+            date,
             site: SiteData {
                 url,
-                ..Default::default()
+                client: Client::new(),
             },
             ..Default::default()
         };
 
-        schedule.parse(&client).await?;
-
-        if date.weekday == 0 {
-            let local: DateTime<Local> = Local::now();
-            date.weekday = local.weekday() as u8 + 1;
-        }
+        schedule.parse().await?;
 
         Ok(schedule)
     }
 
-    async fn save(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
-        sqlx::query(r#"
-            
-        "#)
-        .execute(pool)
-        .await?;
+    pub async fn is_changed(&mut self) -> bool {
+        let previous_weely_storage = self.weekly_storage.clone();
 
-        Ok(())
+        let _ = self.parse().await;
+
+        previous_weely_storage != self.weekly_storage
     }
 
-    async fn get_lessons(pool: &PgPool) {
+    // feature/optimize_storage
+    //async fn save(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+    //    sqlx::query(r#"
+    //
+    //    "#)
+    //    .execute(pool)
+    //    .await?;
+    //
+    //    Ok(())
+    //}
+    //
+    //async fn get_lessons(pool: &PgPool) {
+    //
+    //}
 
-    }
-
-    async fn format_lessons(&self, schedule_text: &mut String, i: usize, day_lessons: &Vec<Lesson>) {
+    async fn format_lessons(
+        &self,
+        schedule_text: &mut String,
+        i: usize,
+        day_lessons: &Vec<Lesson>,
+    ) {
         schedule_text.push_str(&format!("{}\n", self.days[i]));
 
         for lesson in day_lessons {
@@ -229,10 +243,10 @@ impl Schedule {
             }
             schedule_text.push('\n');
         }
-        schedule_text.push_str("────────────────────────────\n");
+        schedule_text.push_str("───────────────────────────\n");
     }
 
-    pub async fn get_week(&self) -> String {
+    pub async fn print_week(&self) -> String {
         let mut schedule_text = String::new();
 
         for (i, day_lessons) in self.weekly_storage.iter().enumerate() {
@@ -240,7 +254,8 @@ impl Schedule {
                 continue;
             }
 
-            self.format_lessons(&mut schedule_text, i, day_lessons).await;
+            self.format_lessons(&mut schedule_text, i, day_lessons)
+                .await;
         }
 
         if schedule_text.is_empty() {
@@ -250,12 +265,13 @@ impl Schedule {
         }
     }
 
-    pub async fn get_day(&self) -> String {
+    pub async fn print_day(&self) -> String {
         let mut schedule_text = String::new();
 
         for (i, day_lessons) in self.weekly_storage.iter().enumerate() {
             if self.days[i].contains(&format!("{}", self.date.weekday)) {
-                self.format_lessons(&mut schedule_text, i, day_lessons).await;
+                self.format_lessons(&mut schedule_text, i, day_lessons)
+                    .await;
             }
         }
 

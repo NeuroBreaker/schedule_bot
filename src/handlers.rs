@@ -222,7 +222,7 @@ pub async fn schedule_handler(
 
     if let Some(url) = get_user_url(&pool, user_id).await? {
         let schedule = Schedule::new(url).await?;
-        let week_schedule = schedule.get_week().await;
+        let week_schedule = schedule.print_week().await;
 
         let keyboard = week_keyboard().await?;
         bot.send_message(msg.chat.id, week_schedule)
@@ -247,57 +247,68 @@ async fn update_day_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
     schedule: &mut Schedule,
-) -> HandlerResult {
-    let day_schedule = schedule.get_day().await;
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    let notify = if schedule.is_changed().await {
+        let day_schedule = schedule.print_day().await;
 
-    let keyboard = day_keyboard().await?;
-    bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
-        .reply_markup(keyboard)
-        .parse_mode(ParseMode::Html)
-        .await?;
+        let keyboard = day_keyboard().await?;
+        bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
+            .reply_markup(keyboard)
+            .parse_mode(ParseMode::Html)
+            .await?;
+        
+        None
+    } else {
+        Some("Расписание не изменилось".to_string())
+    };
 
-    Ok(())
+    Ok(notify)
 }
 
 async fn update_week_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
     schedule: &mut Schedule,
-) -> HandlerResult {
-    let week_schedule = schedule.get_week().await;
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
 
-    let keyboard = week_keyboard().await?;
-    bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
-        .reply_markup(keyboard)
-        .parse_mode(ParseMode::Html)
-        .await?;
+    let notify = if schedule.is_changed().await {
+        let week_schedule = schedule.print_week().await;
 
-    Ok(())
+        let keyboard = week_keyboard().await?;
+        bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
+            .reply_markup(keyboard)
+            .parse_mode(ParseMode::Html)
+            .await?;
+
+        None
+    } else {
+        Some("Расписание не изменилось".to_string())
+    };
+
+    Ok(notify)
 }
 
 pub async fn week_schedule_callback_handler(
     bot: Bot,
     dialogue: MyDialogue,
     q: CallbackQuery,
-    pool: PgPool,
     mut schedule: Schedule,
 ) -> HandlerResult {
-    let mut notify = String::new();
+    let mut notify = None;
     if let Some(msg) = q.message
         && let Some(data) = q.data
     {
-        let user_id = q.from.id.0 as i64;
         match &*data {
             "previous week" => {
                 if schedule.date.week > 1 {
                     schedule.date.week -= 1;
                 }
 
-                update_week_message(&bot, msg, &mut schedule).await?;
+                notify = update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "update week" => {
-                update_week_message(&bot, msg, &mut schedule).await?;
+                notify = update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "next week" => {
@@ -305,29 +316,30 @@ pub async fn week_schedule_callback_handler(
                     schedule.date.week += 1
                 }
 
-                update_week_message(&bot, msg, &mut schedule).await?;
+                notify = update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "this week" => {
                 schedule.date.week = 0;
                 schedule.date.weekday = 0;
 
-                update_week_message(&bot, msg, &mut schedule).await?;
+                notify = update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "day" => {
-                update_day_message(&bot, msg, &mut schedule).await?;
+                notify = update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             _ => (),
         }
     }
 
-    if notify.is_empty() {
-        bot.answer_callback_query(q.id).await?;
+    if let Some(messg) = notify {
+        bot.answer_callback_query(q.id).text(messg).await?;
     } else {
-        bot.answer_callback_query(q.id).text(notify).await?;
+        bot.answer_callback_query(q.id).await?;
     }
+
     Ok(())
 }
 
@@ -335,15 +347,12 @@ pub async fn day_schedule_callback_handler(
     bot: Bot,
     dialogue: MyDialogue,
     q: CallbackQuery,
-    pool: PgPool,
     mut schedule: Schedule,
 ) -> HandlerResult {
-    let mut notify = String::new();
+    let mut notify = None;
     if let Some(msg) = q.message
         && let Some(data) = q.data
     {
-        let user_id = q.from.id.0 as i64;
-
         match &*data {
             "previous day" => {
                 if schedule.date.weekday == 1 {
@@ -353,11 +362,11 @@ pub async fn day_schedule_callback_handler(
                     schedule.date.weekday -= 1;
                 }
 
-                update_day_message(&bot, msg, &mut schedule).await?;
+                notify = update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "update day" => {
-                update_day_message(&bot, msg, &mut schedule).await?;
+                notify = update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "next day" => {
@@ -368,28 +377,28 @@ pub async fn day_schedule_callback_handler(
                     schedule.date.weekday += 1;
                 }
 
-                update_day_message(&bot, msg, &mut schedule).await?;
+                notify = update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "today" => {
                 schedule.date.week = 0;
                 schedule.date.weekday = 0;
 
-                update_day_message(&bot, msg, &mut schedule).await?;
+                notify = update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "week" => {
-                update_week_message(&bot, msg, &mut schedule).await?;
+                notify = update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             _ => (),
         }
     }
 
-    if notify.is_empty() {
-        bot.answer_callback_query(q.id).await?;
+    if let Some(messg) = notify {
+        bot.answer_callback_query(q.id).text(messg).await?;
     } else {
-        bot.answer_callback_query(q.id).text(notify).await?;
+        bot.answer_callback_query(q.id).await?;
     }
     Ok(())
 }
