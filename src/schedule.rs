@@ -246,7 +246,7 @@ impl Schedule {
         schedule_text.push_str("───────────────────────────\n");
     }
 
-    pub async fn print_week(&self) -> String {
+    pub async fn format_week(&self) -> String {
         let mut schedule_text = String::new();
 
         for (i, day_lessons) in self.weekly_storage.iter().enumerate() {
@@ -265,7 +265,7 @@ impl Schedule {
         }
     }
 
-    pub async fn print_day(&self) -> String {
+    pub async fn format_day(&self) -> String {
         let mut schedule_text = String::new();
 
         for (i, day_lessons) in self.weekly_storage.iter().enumerate() {

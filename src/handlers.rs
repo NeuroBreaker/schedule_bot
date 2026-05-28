@@ -222,7 +222,7 @@ pub async fn schedule_handler(
 
     if let Some(url) = get_user_url(&pool, user_id).await? {
         let schedule = Schedule::new(url).await?;
-        let week_schedule = schedule.print_week().await;
+        let week_schedule = schedule.format_week().await;
 
         let keyboard = week_keyboard().await?;
         bot.send_message(msg.chat.id, week_schedule)
@@ -247,22 +247,16 @@ async fn update_day_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
     schedule: &mut Schedule,
-) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-    let notify = if schedule.is_changed().await {
-        let day_schedule = schedule.print_day().await;
+) -> HandlerResult {
+    let day_schedule = schedule.format_day().await;
 
-        let keyboard = day_keyboard().await?;
-        bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
-            .reply_markup(keyboard)
-            .parse_mode(ParseMode::Html)
-            .await?;
-        
-        None
-    } else {
-        Some("Расписание не изменилось".to_string())
-    };
+    let keyboard = day_keyboard().await?;
+    bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
+        .reply_markup(keyboard)
+        .parse_mode(ParseMode::Html)
+        .await?;
 
-    Ok(notify)
+    Ok(())
 }
 
 async fn update_week_message(
@@ -272,7 +266,7 @@ async fn update_week_message(
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
 
     let notify = if schedule.is_changed().await {
-        let week_schedule = schedule.print_week().await;
+        let week_schedule = schedule.format_week().await;
 
         let keyboard = week_keyboard().await?;
         bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
@@ -327,7 +321,7 @@ pub async fn week_schedule_callback_handler(
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             "day" => {
-                notify = update_day_message(&bot, msg, &mut schedule).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             _ => (),
@@ -362,11 +356,15 @@ pub async fn day_schedule_callback_handler(
                     schedule.date.weekday -= 1;
                 }
 
-                notify = update_day_message(&bot, msg, &mut schedule).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "update day" => {
-                notify = update_day_message(&bot, msg, &mut schedule).await?;
+                if schedule.is_changed().await {
+                    update_day_message(&bot, msg, &mut schedule).await?;
+                } else {
+                    notify = Some("Расписание не изменилось".to_string());
+                }
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "next day" => {
@@ -377,18 +375,22 @@ pub async fn day_schedule_callback_handler(
                     schedule.date.weekday += 1;
                 }
 
-                notify = update_day_message(&bot, msg, &mut schedule).await?;
+                update_day_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "today" => {
                 schedule.date.week = 0;
                 schedule.date.weekday = 0;
 
-                notify = update_day_message(&bot, msg, &mut schedule).await?;
+                if schedule.is_changed().await {
+                    update_day_message(&bot, msg, &mut schedule).await?;
+                } else {
+                    notify = Some("Расписание не изменилось".to_string());
+                }
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "week" => {
-                notify = update_week_message(&bot, msg, &mut schedule).await?;
+                update_week_message(&bot, msg, &mut schedule).await?;
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             _ => (),
