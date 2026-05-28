@@ -390,7 +390,14 @@ pub async fn day_schedule_callback_handler(
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "week" => {
-                update_week_message(&bot, msg, &mut schedule).await?;
+                let week_schedule = schedule.format_week().await;
+
+                let keyboard = week_keyboard().await?;
+                bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
+                    .reply_markup(keyboard)
+                    .parse_mode(ParseMode::Html)
+                    .await?;
+
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }
             _ => (),
