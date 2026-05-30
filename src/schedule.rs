@@ -1,6 +1,8 @@
 use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use reqwest::Client;
 use scraper::{Html, Selector};
+use serde::{Serialize, Deserialize};
+use sqlx::PgPool;
 use std::error::Error;
 
 type MyError = Box<dyn Error + Send + Sync>;
@@ -20,7 +22,7 @@ impl Date {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 struct Lesson {
     time: String,
     discipline: String,
@@ -203,17 +205,16 @@ impl Schedule {
         previous_weely_storage != self.weekly_storage
     }
 
-    // feature/optimize_storage
-    //async fn save(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
-    //    sqlx::query(r#"
-    //
-    //    "#)
-    //    .execute(pool)
-    //    .await?;
-    //
-    //    Ok(())
-    //}
-    //
+    async fn push_schedule(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query(r#"
+            UPDATE 
+        "#)
+        .execute(pool)
+        .await?;
+
+        Ok(())
+    }
+    
     //async fn get_lessons(pool: &PgPool) {
     //
     //}
@@ -267,12 +268,11 @@ impl Schedule {
 
     pub async fn format_day(&self) -> String {
         let mut schedule_text = String::new();
+        let day_vec = &self.weekly_storage.get(self.date.weekday as usize - 1);
 
-        for (i, day_lessons) in self.weekly_storage.iter().enumerate() {
-            if self.days[i].contains(&format!("{}", self.date.weekday)) {
-                self.format_lessons(&mut schedule_text, i, day_lessons)
-                    .await;
-            }
+        if let Some(day_schedule) = day_vec {
+            self.format_lessons(&mut schedule_text, self.date.weekday as usize - 1, day_schedule)
+                .await;
         }
 
         if schedule_text.is_empty() {

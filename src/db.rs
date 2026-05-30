@@ -43,13 +43,26 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
     .execute(&pool)
     .await?;
 
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS schedules (
+                week INT
+                schedule JSONB
+                hash BIGINT
+                faculty_id INTEGER REFERENCES faculties(id)
+            )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
+
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM faculties")
         .fetch_one(&pool)
         .await?;
 
     if count.0 == 0 {
         log::info!("База данных пуста, запускаю парсинг");
-        get_faculties(&pool).await?;
+        push_faculties(&pool).await?;
     } else {
         log::info!("Данные в базе уже есть, пропуск парсинга");
     }
@@ -58,7 +71,7 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
     Ok(pool)
 }
 
-pub async fn get_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+pub async fn push_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
     let url = "https://ssau.ru/rasp";
     let base_url = "https://ssau.ru";
 
@@ -90,7 +103,7 @@ pub async fn get_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + S
                 ..Default::default()
             };
 
-            get_course(&full_url, faculty, &mut count, &client, pool).await?;
+            push_course(&full_url, faculty, &mut count, &client, pool).await?;
         }
     }
 
@@ -99,7 +112,7 @@ pub async fn get_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + S
     Ok(())
 }
 
-async fn get_course(
+async fn push_course(
     url: &str,
     mut faculty: Faculty,
     count: &mut i32,
@@ -125,14 +138,14 @@ async fn get_course(
         if !course.is_empty() {
             faculty.course = course;
 
-            get_group(&url, faculty.clone(), count, client, pool).await?;
+            push_group(&url, faculty.clone(), count, client, pool).await?;
         }
     }
 
     Ok(())
 }
 
-async fn get_group(
+async fn push_group(
     url: &str,
     mut faculty: Faculty,
     count: &mut i32,
@@ -172,4 +185,15 @@ async fn get_group(
     }
 
     Ok(())
+}
+
+async fn push_schedule(pool: &PgPool, week: i32, schedule: &Vec<Vec<Lesson>>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    sqlx::query(
+        r#"
+            INSERT 
+        "#
+    )
+    .bind(&week)
+    .execute(pool)
+    .await?;
 }
