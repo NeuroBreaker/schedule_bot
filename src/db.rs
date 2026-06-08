@@ -186,14 +186,3 @@ async fn push_group(
 
     Ok(())
 }
-
-async fn push_schedule(pool: &PgPool, week: i32, schedule: &Vec<Vec<Lesson>>) -> Result<(), Box<dyn Error + Send + Sync>> {
-    sqlx::query(
-        r#"
-            INSERT 
-        "#
-    )
-    .bind(&week)
-    .execute(pool)
-    .await?;
-}

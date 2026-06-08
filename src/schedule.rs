@@ -205,19 +205,23 @@ impl Schedule {
         previous_weely_storage != self.weekly_storage
     }
 
-    async fn push_schedule(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
-        sqlx::query(r#"
-            UPDATE 
-        "#)
+    async fn push_into_db(&self, pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
+        sqlx::query(
+            r#"
+                INSERT INTO schedules
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT faculty_id DO UPDATE SET faculty_id = EXPANDED.faculty_id
+            "#
+        )
+        .bind(&self.date.week)
+        .bind(&self.weekly_storage)
         .execute(pool)
         .await?;
-
-        Ok(())
     }
-    
-    //async fn get_lessons(pool: &PgPool) {
-    //
-    //}
+
+    async fn get_from_db(pool: &PgPool) {
+
+    }
 
     async fn format_lessons(
         &self,
