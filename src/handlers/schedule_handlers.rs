@@ -52,24 +52,7 @@ async fn update_day_message(
 ) -> HandlerResult {
     let day_schedule = schedule.format_day().await;
 
-<<<<<<<< HEAD:src/handlers/handlers.rs
-    let keyboard = day_keyboard().await?;
-    bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
-        .reply_markup(keyboard)
-        .parse_mode(ParseMode::Html)
-        .await?;
-========
-        let keyboard = day_keyboard().await?;
-        bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
-            .reply_markup(keyboard)
-            .parse_mode(ParseMode::Html)
-            .await?;
 
-        None
-    } else {
-        Some("Расписание не изменилось".to_string())
-    };
->>>>>>>> f83d770 (Refactoring):src/handlers/schedule_handlers.rs
 
     Ok(())
 }

@@ -2,9 +2,8 @@ mod bot;
 mod db;
 mod handler_tree;
 mod handlers;
-mod inline_keyboards;
-mod schedule;
 mod utils;
+mod types;
 
 #[tokio::main]
 async fn main() {

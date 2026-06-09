@@ -1,6 +1,6 @@
 use std::error::Error;
 
-use crate::{db::init_db, handler_tree::handler_tree, handlers::User, schedule::Schedule};
+use crate::{db::init_db, handler_tree::handler_tree, handlers::User, types::schedule::Schedule};
 use teloxide::{dispatching::dialogue::InMemStorage, prelude::*, utils::command::BotCommands};
 
 #[derive(BotCommands, Clone, Debug)]

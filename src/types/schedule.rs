@@ -217,6 +217,8 @@ impl Schedule {
         .bind(&self.weekly_storage)
         .execute(pool)
         .await?;
+
+        Ok(())
     }
 
     async fn get_from_db(pool: &PgPool) {
