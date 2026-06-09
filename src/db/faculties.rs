@@ -1,12 +1,16 @@
 use reqwest::Client;
 use scraper::{Html, Selector};
-use sqlx::{PgPool};
+use sqlx::PgPool;
 use std::error::Error;
 
-use crate::db::Faculty;
-
-
-
+#[derive(Default, Clone, Debug)]
+struct Faculty {
+    name: String,
+    course: String,
+    group: String,
+    url: String,
+}
+ 
 pub async fn push_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
     let url = "https://ssau.ru/rasp";
     let base_url = "https://ssau.ru";

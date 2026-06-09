@@ -1,6 +1,6 @@
 use crate::{
     bot::{Command, State},
-    handlers::handlers::*,
+    handlers::*,
 };
 use dptree::case;
 use std::error::Error;

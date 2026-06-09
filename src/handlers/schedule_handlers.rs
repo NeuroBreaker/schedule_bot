@@ -49,12 +49,22 @@ async fn update_day_message(
     bot: &Bot,
     qmsg: MaybeInaccessibleMessage,
     schedule: &mut Schedule,
-) -> HandlerResult {
-    let day_schedule = schedule.format_day().await;
+) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
+    let notify = if true {
+        let day_schedule = schedule.format_day().await;
 
+        let keyboard = day_keyboard().await?;
+        bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
+            .reply_markup(keyboard)
+            .parse_mode(ParseMode::Html)
+            .await?;
 
+        None
+    } else {
+        Some("Расписание не изменилось".to_string())
+    };
 
-    Ok(())
+    Ok(notify)
 }
 
 async fn update_week_message(

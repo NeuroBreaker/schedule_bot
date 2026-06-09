@@ -197,6 +197,14 @@ impl Schedule {
         Ok(schedule)
     }
 
+    pub async fn day_is_changed(&mut self) -> bool {
+        let previous_day = self.format_day().await;
+
+        let _ = self.parse().await;
+
+        previous_day != self.format_day().await
+    }
+
     pub async fn is_changed(&mut self) -> bool {
         let previous_weely_storage = self.weekly_storage.clone();
 
@@ -209,12 +217,16 @@ impl Schedule {
         sqlx::query(
             r#"
                 INSERT INTO schedules
-                VALUES ($1, $2, $3, $4)
+                SELECT $1, $2, $3, id
+                FROM faculties
                 ON CONFLICT faculty_id DO UPDATE SET faculty_id = EXPANDED.faculty_id
             "#
+            // ЭЭЭЭ НУ Я КРЧ КАК ОБЕЗЬЯНКА С ТАРЕЛКАМИ
+            // ПОТОМ ДОПИШУ
         )
-        .bind(&self.date.week)
-        .bind(&self.weekly_storage)
+        .bind(self.date.week as i64)
+        .bind(&self.weekly_storage) // Need serialize to jsonb
+        .bind(&self.) // hash (BIGINT)
         .execute(pool)
         .await?;
 

@@ -1,9 +1,9 @@
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::error::Error;
 
-pub mod get_faculties;
+mod faculties;
 
-pub use get_faculties::*;
+pub use faculties::*;
 
 #[derive(Default, Clone, Debug)]
 struct Faculty {
@@ -44,6 +44,19 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
     )
     .execute(&pool)
     .await?;
+    
+    sqlx::query(
+        r#"
+            CREATE TABLE IF NOT EXISTS schedules (
+                week INT
+                schedule JSONB
+                hash BIGINT
+                faculty_id INTEGER REFERENCES faculties(id)
+            )
+        "#,
+    )
+    .execute(&pool)
+    .await?;
 
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM faculties")
         .fetch_one(&pool)
@@ -51,7 +64,7 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
 
     if count.0 == 0 {
         log::info!("База данных пуста, запускаю парсинг");
-        get_faculties(&pool).await?;
+        push_faculties(&pool).await?;
     } else {
         log::info!("Данные в базе уже есть, пропуск парсинга");
     }
