@@ -51,7 +51,8 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
             week INT,
             schedule JSONB,
             hash BIGINT,
-            faculty_id INTEGER REFERENCES faculties(id)
+            faculty_id INTEGER REFERENCES faculties(id),
+            UNIQUE (faculty_id, week)
         )
         "#,
     )

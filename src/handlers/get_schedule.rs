@@ -1,5 +1,5 @@
-use sqlx::PgPool;
-use std::{error::Error};
+use sqlx::{PgPool, Row};
+use std::error::Error;
 use teloxide::{
     prelude::*,
     types::{MaybeInaccessibleMessage, ParseMode},
@@ -9,9 +9,9 @@ use crate::{
     bot::State,
     handler_tree::MyDialogue,
     handlers::HandlerResult,
-    utils::inline_keyboards::{day_keyboard, week_keyboard},
     types::schedule::Schedule,
     utils::get_user_url,
+    utils::inline_keyboards::{day_keyboard, week_keyboard},
 };
 
 pub async fn schedule_handler(
@@ -24,8 +24,22 @@ pub async fn schedule_handler(
 
     if let Some(url) = get_user_url(&pool, user_id).await? {
         let mut schedule: Schedule = Schedule::new(url);
-        //schedule.fetch_and_save(&pool).await;
-        let week_schedule: String = schedule.format_week(&pool).await;
+        schedule.fetch_and_save(&pool).await;
+
+        let week_schedule: String = if let Ok(row) = schedule.get_db_row(&pool).await {
+            if let Some(row) = row {
+                let weekly_storage: serde_json::Value = row.get("schedule");
+                schedule.format_week(weekly_storage).await
+            } else {
+                "На эту неделю расписания нету".to_string()
+            }
+        } else {
+            "\
+                Ошибка при получении данных из бд\n\
+                Пожалуйста, свяжитесь с разработчиком, и скажите ему, что он рукожоп\
+            "
+            .to_string()
+        };
 
         let keyboard = week_keyboard().await?;
 
@@ -53,8 +67,27 @@ async fn update_day_message(
     qmsg: MaybeInaccessibleMessage,
     schedule: &mut Schedule,
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
-    let notify = if true {
-        let day_schedule = schedule.format_day(&pool).await;
+    let notify = if true
+    /* schedule.is_changed().await */
+    {
+        //
+        //
+        //
+        // НЕОБХОДИМ ФИКС schedule.format_day(weekly_storage)
+        // А ТАКЖЕ schedule.is_changed()
+        //
+        //
+        //
+        let mut day_schedule: String = String::new();
+
+        if let Ok(row) = schedule.get_db_row(&pool).await {
+            if let Some(row) = row {
+                let weekly_storage: serde_json::Value = row.get("schedule");
+                day_schedule = schedule.format_day(weekly_storage).await;
+            } else {
+                day_schedule = "На этот день расписания нету".to_string();
+            }
+        }
 
         let keyboard = day_keyboard().await?;
         bot.edit_message_text(qmsg.chat().id, qmsg.id(), day_schedule)
@@ -77,7 +110,16 @@ async fn update_week_message(
     schedule: &mut Schedule,
 ) -> Result<Option<String>, Box<dyn Error + Send + Sync>> {
     let notify = if schedule.is_changed().await {
-        let week_schedule = schedule.format_week(pool).await;
+        let mut week_schedule: String = String::new();
+
+        if let Ok(row) = schedule.get_db_row(&pool).await {
+            if let Some(row) = row {
+                let weekly_storage: serde_json::Value = row.get("schedule");
+                week_schedule = schedule.format_week(weekly_storage).await;
+            } else {
+                week_schedule = "На этот день расписания нету".to_string();
+            }
+        }
 
         let keyboard = week_keyboard().await?;
         bot.edit_message_text(qmsg.chat().id, qmsg.id(), week_schedule)
@@ -203,13 +245,7 @@ pub async fn day_schedule_callback_handler(
                 dialogue.update(State::DaySchedule(schedule)).await?;
             }
             "week" => {
-                let week_schedule = schedule.format_week(&pool).await;
-
-                let keyboard = week_keyboard().await?;
-                bot.edit_message_text(msg.chat().id, msg.id(), week_schedule)
-                    .reply_markup(keyboard)
-                    .parse_mode(ParseMode::Html)
-                    .await?;
+                notify = update_week_message(&bot, &pool, msg, &mut schedule).await?;
 
                 dialogue.update(State::WeekSchedule(schedule)).await?;
             }

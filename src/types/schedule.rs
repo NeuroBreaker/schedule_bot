@@ -2,7 +2,7 @@ use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, Utc, Weekday};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Serialize, Deserialize};
-use sqlx::{PgPool, Row, postgres::PgRow};
+use sqlx::{PgPool, postgres::PgRow};
 use xxhash_rust::const_xxh3::xxh3_64;
 use std::error::Error;
 
@@ -36,6 +36,7 @@ struct Lesson {
 #[derive(Clone, Debug)]
 struct SiteData {
     url: String,
+    client: Client,
     //last_modified: String,
 }
 
@@ -43,7 +44,6 @@ struct SiteData {
 pub struct Schedule {
     pub date: Date,
     site: SiteData,
-    days: Vec<String>,
 }
 
 impl Schedule {
@@ -52,17 +52,19 @@ impl Schedule {
             date: Date::new(),
             site: SiteData {
                 url,
+                client: Client::new(),
             },
-            days: vec!["".to_string()],
         }
     }
+
     async fn compute_hash(&self, storage: &Vec<Vec<Lesson>>) -> i64 {
         let serialized = serde_json::to_vec(storage).unwrap();
         xxh3_64(&serialized) as i64
     }
 
-    fn build_days(week: u16) -> Vec<String> {
+    async fn build_days(&self) -> Vec<String> {
         let current = Utc::now();
+        let week = self.date.week;
         let year = if week > 50 && current.iso_week().week() < 5 {
             current.year() - 1
         } else {
@@ -90,8 +92,8 @@ impl Schedule {
                 SELECT $1, $2, $3, id
                 FROM faculties
                 WHERE url = $4
-                ON CONFLICT (faculty_id) DO UPDATE
-                    SET data = EXCLUDED.data,
+                ON CONFLICT (faculty_id, week) DO UPDATE
+                    SET schedule = EXCLUDED.schedule,
                         hash = EXCLUDED.hash
                     WHERE schedules.hash != EXCLUDED.hash
             "#
@@ -106,9 +108,9 @@ impl Schedule {
         Ok(())
     }
 
-    async fn get_db_row(&self, pool: &PgPool) -> Result<Option<PgRow>, MyError> {
+    pub async fn get_db_row(&self, pool: &PgPool) -> Result<Option<PgRow>, MyError> {
         let row = sqlx::query(r#"
-                SELECT s.data
+                SELECT s.schedule
                 FROM schedules s
                 JOIN faculties f ON f.id = s.faculty_id
                 WHERE f.url = $1 AND s.week = $2
@@ -122,8 +124,29 @@ impl Schedule {
         Ok(row)
     }
 
-    async fn parse(&mut self, pool: &PgPool) -> Result<(), MyError> {
+    async fn assign_current_week(&mut self) -> Result<(), MyError> {
+        let response = self.site.client.get(&self.site.url).send().await?.text().await?;
+        let document = Html::parse_document(&response);
+
+        let week_item_selector = Selector::parse(".week-nav-current_week").unwrap();
+
+        let current_week_str = &document
+            .select(&week_item_selector)
+            .map(|e| e.text().collect::<String>().trim().to_string())
+            .collect::<String>()[0..2];
+
+        self.date.week = current_week_str.parse::<u8>().unwrap_or(0) as u16;
+
+        Ok(())
+    }
+
+    async fn parse(&mut self) -> Result<Vec<Vec<Lesson>>, MyError> {
         let mut url = self.site.url.clone();
+
+        if self.date.week == 0 {
+            self.assign_current_week().await?;
+        }
+
         if self.date.week != 0 {
             url += &format!("&selectedWeek={}", self.date.week);
         }
@@ -132,12 +155,10 @@ impl Schedule {
             url += &format!("&selectedWeekday={}", self.date.weekday);
         }
 
-        let client = Client::new();
-
-        let response = client.get(url).send().await?.text().await?;
+        let response = self.site.client.get(url).send().await?.text().await?;
         let document = Html::parse_document(&response);
+
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
-        let week_item_selector = Selector::parse(".week-nav-current_week").unwrap();
         let time_item_selector = Selector::parse(".schedule__time-item").unwrap();
         let lesson_selector = Selector::parse(".schedule__lesson").unwrap();
         let disc_selector = Selector::parse(".schedule__discipline").unwrap();
@@ -213,18 +234,8 @@ impl Schedule {
                 day_index += 1;
             }
         }
-        self.push_into_db(pool, &weekly_storage).await?;
 
-        if self.date.week == 0 {
-            let current_week_str = &document
-                .select(&week_item_selector)
-                .map(|e| e.text().collect::<String>().trim().to_string())
-                .collect::<String>()[0..2];
-
-            self.date.week = current_week_str.parse::<u8>().unwrap_or(0) as u16;
-        }
-
-        Ok(())
+        Ok(weekly_storage)
     }
 
     pub async fn fetch_and_save(&mut self, pool: &PgPool) {
@@ -236,13 +247,21 @@ impl Schedule {
 
         let mut i = 0;
         loop {
-            if self.parse(pool).await.is_ok() {
+            if let Ok(weekly_storage) = self.parse().await {
+                let push_rslt = self.push_into_db(pool, &weekly_storage).await;
+                match push_rslt {
+                    Ok(_) => (),
+                    Err(err) => {
+                        let err_msg = err.to_string();
+                        log::error!("push_into_db() error: {}", err_msg);
+                    }
+                }
                 break;
             } else {
                 log::warn!("parsing error, trying again");
                 log::warn!("{}", i);
             }
-            
+
             i += 1;
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
         }
@@ -259,10 +278,11 @@ impl Schedule {
     async fn format_lessons(
         &self,
         schedule_text: &mut String,
-        i: usize,
+        index: usize,
         day_lessons: &Vec<Lesson>,
     ) {
-        schedule_text.push_str(&format!("{}\n", self.days[i]));
+        let days = self.build_days().await;
+        schedule_text.push_str(&format!("{}\n", days[index]));
 
         for lesson in day_lessons {
             schedule_text.push_str(&format!(
@@ -284,26 +304,24 @@ impl Schedule {
         schedule_text.push_str("───────────────────────────\n");
     }
 
-    pub async fn format_week(&self, pool: &PgPool) -> String {
-        let mut schedule_text = String::new();
-        
-        if let Ok(row) = self.get_db_row(pool).await {
-            if let Some(row) = row {
-                let weekly_storage: serde_json::Value = row.get("schedule");
-
-                schedule_text = weekly_storage.to_string();
+    pub async fn format_week(&self, json: serde_json::Value) -> String {
+        let weekly_storage: Vec<Vec<Lesson>> = match serde_json::from_value(json) {
+            Ok(schedule) => schedule,
+            Err(err) => {
+                log::error!("{}", err.to_string());
+                return "Ошибка при чтении расписания\nПередайте разрабу, что он бездарен".to_string();
             }
+        };
+
+        let mut schedule_text: String = String::new();
+        for (i, day_lessons) in weekly_storage.iter().enumerate() {
+            if day_lessons.is_empty() {
+                continue;
+            }
+
+            self.format_lessons(&mut schedule_text, i, day_lessons)
+                .await;
         }
-
-
-        //for (i, day_lessons) in self.weekly_storage.iter().enumerate() {
-        //    if day_lessons.is_empty() {
-        //        continue;
-        //    }
-        //
-        //    self.format_lessons(&mut schedule_text, i, day_lessons)
-        //        .await;
-        //}
 
         if schedule_text.is_empty() {
             "На эту неделю расписания нет.".to_string()
@@ -312,23 +330,22 @@ impl Schedule {
         }
     }
 
-    pub async fn format_day(&self, pool: &PgPool) -> String {
-        let mut schedule_text = String::new();
-
-        if let Ok(row) = self.get_db_row(pool).await {
-            if let Some(row) = row {
-                let weekly_storage: serde_json::Value = row.get("schedule");
-
-                schedule_text = weekly_storage.to_string();
+    pub async fn format_day(&self, json: serde_json::Value) -> String {
+        let weekly_storage: Vec<Vec<Lesson>> = match serde_json::from_value(json) {
+            Ok(schedule) => schedule,
+            Err(err) => {
+                log::error!("{}", err.to_string());
+                return "Ошибка при чтении расписания\nПередайте разрабу, что он бездарен".to_string();
             }
+        };
+
+        let day_vec = &weekly_storage.get(self.date.weekday as usize - 1);
+
+        let mut schedule_text = String::new();
+        if let Some(day_schedule) = day_vec {
+            self.format_lessons(&mut schedule_text, self.date.weekday as usize - 1, day_schedule)
+                .await;
         }
-
-        //let day_vec = &self.weekly_storage.get(self.date.weekday as usize - 1);
-
-        //if let Some(day_schedule) = day_vec {
-        //    self.format_lessons(&mut schedule_text, self.date.weekday as usize - 1, day_schedule)
-        //        .await;
-        //}
 
         if schedule_text.is_empty() {
             "На этот день расписания нет.".to_string()
