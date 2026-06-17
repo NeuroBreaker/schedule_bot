@@ -1,11 +1,11 @@
 use std::error::Error;
 
 pub mod default;
-pub mod schedule_handlers;
+pub mod get_schedule;
 pub mod setup;
 
 pub use default::*;
-pub use schedule_handlers::*;
+pub use get_schedule::*;
 pub use setup::*;
 
 type HandlerResult = Result<(), Box<dyn Error + Send + Sync>>;

@@ -47,12 +47,12 @@ pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync
     
     sqlx::query(
         r#"
-            CREATE TABLE IF NOT EXISTS schedules (
-                week INT
-                schedule JSONB
-                hash BIGINT
-                faculty_id INTEGER REFERENCES faculties(id)
-            )
+        CREATE TABLE IF NOT EXISTS schedules (
+            week INT,
+            schedule JSONB,
+            hash BIGINT,
+            faculty_id INTEGER REFERENCES faculties(id)
+        )
         "#,
     )
     .execute(&pool)

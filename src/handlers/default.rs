@@ -45,8 +45,8 @@ pub async fn cancel_handler(dialogue: MyDialogue) -> HandlerResult {
 // Обработка любого текста, что не входит в команды
 pub async fn message_handler(
     bot: Bot,
-    dialogue: MyDialogue,
     msg: Message,
+    dialogue: MyDialogue,
     pool: PgPool,
 ) -> HandlerResult {
     let user_text = msg.text().unwrap_or("");
@@ -56,7 +56,7 @@ pub async fn message_handler(
             setup_handler(bot, dialogue, msg, pool).await?;
         }
         "узнать расписание" => {
-            schedule_handler(bot, dialogue, msg, pool).await?;
+            schedule_handler(bot, msg, dialogue, pool).await?;
         }
         _ => {
             if user_text.starts_with('/') {

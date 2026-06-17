@@ -112,13 +112,19 @@ async fn push_group(
             faculty.group = group;
             faculty.url = url;
 
-            sqlx::query(r#"INSERT INTO faculties (name, course, "group", url) VALUES ($1, $2, $3, $4) ON CONFLICT (url) DO NOTHING"#)
-                .bind(&faculty.name)
-                .bind(&faculty.course)
-                .bind(&faculty.group)
-                .bind(&faculty.url)
-                .execute(pool)
-                .await?;
+            sqlx::query(
+                r#"
+                    INSERT INTO faculties (name, course, "group", url)
+                    VALUES ($1, $2, $3, $4)
+                    ON CONFLICT (url) DO NOTHING
+                "#
+            )
+            .bind(&faculty.name)
+            .bind(&faculty.course)
+            .bind(&faculty.group)
+            .bind(&faculty.url)
+            .execute(pool)
+            .await?;
 
             *count += 1;
         }
