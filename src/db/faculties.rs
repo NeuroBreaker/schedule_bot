@@ -10,7 +10,7 @@ struct Faculty {
     group: String,
     url: String,
 }
- 
+
 pub async fn push_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + Sync>> {
     let url = "https://ssau.ru/rasp";
     let base_url = "https://ssau.ru";
@@ -28,11 +28,7 @@ pub async fn push_faculties(pool: &PgPool) -> Result<(), Box<dyn Error + Send + 
     let mut count = 0;
 
     for element in document.select(&selector) {
-        let name = element
-            .text()
-            .collect::<String>()
-            .trim()
-            .to_string();
+        let name = element.text().collect::<String>().trim().to_string();
 
         let link = element.value().attr("href").unwrap_or("").to_string();
         let full_url = format!("{}{}", base_url, link);
@@ -66,11 +62,7 @@ async fn push_course(
     let selector = Selector::parse(".nav-course__item a").unwrap();
 
     for element in document.select(&selector) {
-        let course = element
-            .text()
-            .collect::<String>()
-            .trim()
-            .to_string();
+        let course = element.text().collect::<String>().trim().to_string();
 
         let link = element.value().attr("href").unwrap_or("").to_string();
         let url = format!("{}{}", base_url, link);
@@ -99,11 +91,7 @@ async fn push_group(
     let selector = Selector::parse("a.group-catalog__group").unwrap();
 
     for element in document.select(&selector) {
-        let group = element
-            .text()
-            .collect::<String>()
-            .trim()
-            .to_string();
+        let group = element.text().collect::<String>().trim().to_string();
 
         let link = element.value().attr("href").unwrap_or("").to_string();
         let url = format!("{}{}", base_url, link);
@@ -117,7 +105,7 @@ async fn push_group(
                     INSERT INTO faculties (name, course, "group", url)
                     VALUES ($1, $2, $3, $4)
                     ON CONFLICT (url) DO NOTHING
-                "#
+                "#,
             )
             .bind(&faculty.name)
             .bind(&faculty.course)

@@ -5,14 +5,6 @@ mod faculties;
 
 pub use faculties::*;
 
-#[derive(Default, Clone, Debug)]
-struct Faculty {
-    name: String,
-    course: String,
-    group: String,
-    url: String,
-}
-
 pub async fn init_db(db_url: &str) -> Result<PgPool, Box<dyn Error + Send + Sync>> {
     log::info!("Начало инициализации бд");
     let pool = PgPoolOptions::new()

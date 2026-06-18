@@ -193,7 +193,7 @@ pub async fn day_schedule_callback_handler(
         match &*data {
             "previous day" => {
                 if schedule.date.weekday == 1 {
-                    schedule.date.weekday = 7;
+                    schedule.date.weekday = 6;
                     schedule.date.week -= 1;
                 } else {
                     schedule.date.weekday -= 1;
@@ -201,7 +201,7 @@ pub async fn day_schedule_callback_handler(
             }
             "update day" => (),
             "next day" => {
-                if schedule.date.weekday == 7 {
+                if schedule.date.weekday == 6 {
                     schedule.date.weekday = 1;
                     schedule.date.week += 1;
                 } else {
@@ -222,10 +222,21 @@ pub async fn day_schedule_callback_handler(
             Ok(_) => {
                 bot.answer_callback_query(q.id).await?;
             }
-            Err(_) => {
-                bot.answer_callback_query(q.id)
-                    .text("Ошибка обновления(скорее всего текст не изменился)")
-                    .await?;
+            Err(err) => {
+                let msg = match err.downcast_ref::<RequestError>() {
+                    Some(RequestError::Api(api_err))
+                        if api_err.to_string().contains("message is not modified") =>
+                    {
+                        "Ничего не изменилось"
+                    }
+                    Some(RequestError::Api(_)) => "Ошибка API",
+                    _ => {
+                        log::error!("Network/Other error: {:?}", err);
+                        "Ошибка соединения"
+                    }
+                };
+                log::error!("{err:?}");
+                bot.answer_callback_query(q.id).text(msg).await?;
             }
         }
 
