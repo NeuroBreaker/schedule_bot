@@ -1,6 +1,7 @@
 use sqlx::{PgPool, Row};
 use std::error::Error;
 use teloxide::{
+    RequestError,
     prelude::*,
     types::{MaybeInaccessibleMessage, ParseMode},
 };
@@ -73,9 +74,12 @@ async fn update_message(
     schedule: &mut Schedule,
     required: &Required,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
-    if /* schedule.is_changed(1).await */ true {
+    if
+    /* schedule.is_changed(1).await */
+    true {
         // НЕОБХОДИМ ФИКС schedule.format_day(weekly_storage)
         // А ТАКЖЕ schedule.is_changed()
+        schedule.fetch_and_save(pool).await;
         let mut schedule_msg: String = String::new();
 
         if let Ok(row) = schedule.get_db_row(pool).await {
@@ -94,12 +98,15 @@ async fn update_message(
             }
         }
 
-        let keyboard = day_keyboard().await?;
+        let keyboard = match required {
+            Required::Day => day_keyboard().await?,
+            Required::Week => week_keyboard().await?,
+        };
+
         bot.edit_message_text(qmsg.chat().id, qmsg.id(), schedule_msg)
             .reply_markup(keyboard)
             .parse_mode(ParseMode::Html)
             .await?;
-
     }
 
     Ok(())
@@ -122,7 +129,7 @@ pub async fn week_schedule_callback_handler(
                     schedule.date.week -= 1;
                 }
             }
-            "update week" => (), 
+            "update week" => (),
             "next week" => {
                 if schedule.date.week <= 65534 {
                     schedule.date.week += 1
@@ -141,8 +148,21 @@ pub async fn week_schedule_callback_handler(
             Ok(_) => {
                 bot.answer_callback_query(q.id).await?;
             }
-            Err(_) => {
-                bot.answer_callback_query(q.id).text("Ошибка обновления(скорее всего текст не изменился)").await?;
+            Err(err) => {
+                let msg = match err.downcast_ref::<RequestError>() {
+                    Some(RequestError::Api(api_err))
+                        if api_err.to_string().contains("message is not modified") =>
+                    {
+                        "Ничего не изменилось"
+                    }
+                    Some(RequestError::Api(_)) => "Ошибка API",
+                    _ => {
+                        log::error!("Network/Other error: {:?}", err);
+                        "Ошибка соединения"
+                    }
+                };
+                log::error!("{err:?}");
+                bot.answer_callback_query(q.id).text(msg).await?;
             }
         }
 
@@ -203,7 +223,9 @@ pub async fn day_schedule_callback_handler(
                 bot.answer_callback_query(q.id).await?;
             }
             Err(_) => {
-                bot.answer_callback_query(q.id).text("Ошибка обновления(скорее всего текст не изменился)").await?;
+                bot.answer_callback_query(q.id)
+                    .text("Ошибка обновления(скорее всего текст не изменился)")
+                    .await?;
             }
         }
 
