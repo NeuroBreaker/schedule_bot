@@ -86,8 +86,8 @@ impl Schedule {
         }
     }
 
-    async fn compute_hash(&self, storage: &Vec<Day>) -> i64 {
-        let serialized = serde_json::to_vec(storage).unwrap();
+    async fn compute_hash(&self, json: &serde_json::Value) -> i64 {
+        let serialized = serde_json::to_vec(json).unwrap();
         xxh3_64(&serialized) as i64
     }
 
@@ -133,8 +133,8 @@ impl Schedule {
             "#
         )
         .bind(self.date.week as i64)
-        .bind(json)
-        .bind(self.compute_hash(storage).await)
+        .bind(&json)
+        .bind(self.compute_hash(&json).await)
         .bind(&self.site.url)
         .execute(pool)
         .await?;
@@ -196,34 +196,8 @@ impl Schedule {
         if self.date.week == 0 {
             self.assign_current_week().await?;
         }
-        let mut url = self.site.url.clone();
 
-        if self.date.week != 0 {
-            url += &format!("&selectedWeek={}", self.date.week);
-        }
-
-        if self.date.weekday != 0 {
-            url += &format!("&selectedWeekday={}", self.date.weekday);
-        }
-
-        let response = self.site.client.get(url).send().await?;
-        let response_text = response.text().await?;
-        let document = Html::parse_document(&response_text);
-
-        //let document = loop {
-        //    match self.fetch_html().await {
-        //        Ok(html) => {
-        //            break html;
-        //        }
-        //        Err(err) => {
-        //            log::error!("Error fetching html: {}", err.to_string());
-        //            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        //        }
-        //    }
-        //
-        //    log::info!("Снова запрашиваю html...");
-        //};
-
+        let document = self.fetch_html().await?;
 
         let selectors = Selectors::new();
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
@@ -307,21 +281,22 @@ impl Schedule {
             self.date.weekday = timezone.weekday() as u8 + 1;
         }
 
-        let mut i = 0;
+        let mut i = 1;
         loop {
-            if let Ok(weekly_storage) = self.parse().await {
-                let push_rslt = self.push_into_db(pool, &weekly_storage).await;
-                match push_rslt {
-                    Ok(_) => (),
-                    Err(err) => {
+            match self.parse().await {
+                Ok(weekly_storage) => {
+                    let push_rslt = self.push_into_db(pool, &weekly_storage).await;
+
+                    if let Err(err) = push_rslt {
                         let err_msg = err.to_string();
                         log::error!("push_into_db() error: {}", err_msg);
+                    } else {
+                        break;
                     }
                 }
-                break;
-            } else {
-                log::warn!("parsing error, trying again");
-                log::warn!("{}", i);
+                Err(err) => {
+                    log::warn!("parsing error: {}\nTrying again... ({})", err, i);
+                }
             }
 
             i += 1;
@@ -329,22 +304,16 @@ impl Schedule {
         }
     }
 
-    pub async fn day_is_changed(&mut self) -> bool {
-        true
-    }
-
-    pub async fn is_changed(&mut self) -> bool {
-        true
+    pub async fn is_changed(&mut self, old_hash: i64, json: serde_json::Value) -> bool {
+        old_hash != self.compute_hash(&json).await
     }
 
     async fn format_lessons(
         &self,
         schedule_text: &mut String,
-        index: usize,
         day: &Day,
     ) {
-        //let days = self.build_days().await;
-        //schedule_text.push_str(&format!("{}\n", days[index]));
+        schedule_text.push_str(&format!("{}\n", day.title));
 
         for lesson in &day.lessons {
             schedule_text.push_str(&format!(
@@ -370,18 +339,18 @@ impl Schedule {
         let weekly_storage: Vec<Day> = match serde_json::from_value(json) {
             Ok(schedule) => schedule,
             Err(err) => {
-                log::error!("{}", err.to_string());
+                log::error!("{}", err);
                 return "Ошибка при чтении расписания\nПередайте разрабу, что он бездарен".to_string();
             }
         };
 
         let mut schedule_text: String = String::new();
-        for (i, day_lessons) in weekly_storage.iter().enumerate() {
+        for day_lessons in weekly_storage.iter() {
             if day_lessons.is_empty() {
                 continue;
             }
 
-            self.format_lessons(&mut schedule_text, i, day_lessons)
+            self.format_lessons(&mut schedule_text, day_lessons)
                 .await;
         }
 
@@ -396,7 +365,7 @@ impl Schedule {
         let weekly_storage: Vec<Day> = match serde_json::from_value(json) {
             Ok(schedule) => schedule,
             Err(err) => {
-                log::error!("{}", err.to_string());
+                log::error!("{}", err);
                 return "Ошибка при чтении расписания\nПередайте разрабу, что он бездарен".to_string();
             }
         };
@@ -405,7 +374,7 @@ impl Schedule {
 
         let mut schedule_text = String::new();
         if let Some(day_schedule) = day_vec {
-            self.format_lessons(&mut schedule_text, self.date.weekday as usize - 1, day_schedule)
+            self.format_lessons(&mut schedule_text, day_schedule)
                 .await;
         }
 
