@@ -1,4 +1,4 @@
-use chrono::{DateTime, Datelike, FixedOffset, NaiveDate, Utc, Weekday};
+use chrono::{DateTime, Datelike, FixedOffset, Utc};
 use reqwest::Client;
 use scraper::{Html, Selector};
 use serde::{Serialize, Deserialize};
@@ -8,17 +8,34 @@ use std::error::Error;
 
 type MyError = Box<dyn Error + Send + Sync>;
 
-#[derive(Clone, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct Date {
     pub week: u16,
     pub weekday: u8,
 }
 
-impl Date {
-    pub fn new() -> Date {
-        Date {
-            week: 0,
-            weekday: 0,
+struct Selectors {
+    weekday: Selector,
+    week: Selector,
+    time: Selector,
+    disc: Selector,
+    place: Selector,
+    teacher: Selector,
+    groups: Selector,
+    lesson_type: Selector,
+}
+
+impl Selectors {
+    pub fn new() -> Self {
+        Self {
+            weekday: Selector::parse(".weekday-nav__item").unwrap(),
+            week: Selector::parse(".week-nav-current_week").unwrap(),
+            time: Selector::parse(".schedule__time-item").unwrap(),
+            disc: Selector::parse(".schedule__discipline").unwrap(),
+            place: Selector::parse(".schedule__place").unwrap(),
+            teacher: Selector::parse(".schedule__teacher").unwrap(),
+            groups: Selector::parse(".schedule__groups").unwrap(),
+            lesson_type: Selector::parse(".schedule__lesson-type-chip").unwrap(),
         }
     }
 }
@@ -31,6 +48,18 @@ struct Lesson {
     teacher: String,
     subgroup: String,
     lesson_type: String,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone)]
+struct Day {
+    title: String,
+    lessons: Vec<Lesson>,
+}
+
+impl Day {
+    pub fn is_empty(&self) -> bool {
+        self.lessons.is_empty()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -49,7 +78,7 @@ pub struct Schedule {
 impl Schedule {
     pub fn new(url: String) -> Schedule {
         Schedule {
-            date: Date::new(),
+            date: Date::default(),
             site: SiteData {
                 url,
                 client: Client::new(),
@@ -57,33 +86,38 @@ impl Schedule {
         }
     }
 
-    async fn compute_hash(&self, storage: &Vec<Vec<Lesson>>) -> i64 {
+    async fn compute_hash(&self, storage: &Vec<Day>) -> i64 {
         let serialized = serde_json::to_vec(storage).unwrap();
         xxh3_64(&serialized) as i64
     }
 
-    async fn build_days(&self) -> Vec<String> {
-        let current = Utc::now();
-        let week = self.date.week;
-        let year = if week > 50 && current.iso_week().week() < 5 {
-            current.year() - 1
-        } else {
-            current.year()
-        };
-
-        let monday = NaiveDate::from_isoywd_opt(year, week as u32, Weekday::Mon).unwrap();
-
-        let names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
-
-        (0..6)
-            .map(|i| {
-                let date = monday + chrono::Duration::days(i);
-                format!("{} {}", names[i as usize], date.format("%d.%m"))
-            })
-            .collect()
-    }
+    //async fn build_days(&self) -> Vec<String> {
+    //    let days = document
+    //        .select(&date_item_selector)
+    //        .map(|el| {
+    //            let day = el
+    //                .text()
+    //                .collect::<String>()
+    //                .trim()
+    //                .to_string()
+    //                .to_uppercase();
+    //
+    //            match day {
+    //                s if s.contains("ПН") => s.replace("ПН", "Понедельник"),
+    //                s if s.contains("ВТ") => s.replace("ВТ", "Вторник"),
+    //                s if s.contains("СР") => s.replace("СР", "Среда"),
+    //                s if s.contains("ЧТ") => s.replace("ЧТ", "Четверг"),
+    //                s if s.contains("ПТ") => s.replace("ПТ", "Пятница"),
+    //                s if s.contains("СБ") => s.replace("СБ", "Суббота"),
+    //                _ => day,
+    //            }
+    //        })
+    //        .collect();
+    //
+    //    days
+    //}
     
-    async fn push_into_db(&self, pool: &PgPool, storage: &Vec<Vec<Lesson>>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    async fn push_into_db(&self, pool: &PgPool, storage: &Vec<Day>) -> Result<(), Box<dyn Error + Send + Sync>> {
         let json = serde_json::to_value(storage)?;
 
         sqlx::query(
@@ -140,12 +174,8 @@ impl Schedule {
         Ok(())
     }
 
-    async fn parse(&mut self) -> Result<Vec<Vec<Lesson>>, MyError> {
+    async fn fetch_html(&self) -> Result<Html, MyError> {
         let mut url = self.site.url.clone();
-
-        if self.date.week == 0 {
-            self.assign_current_week().await?;
-        }
 
         if self.date.week != 0 {
             url += &format!("&selectedWeek={}", self.date.week);
@@ -155,19 +185,51 @@ impl Schedule {
             url += &format!("&selectedWeekday={}", self.date.weekday);
         }
 
-        let response = self.site.client.get(url).send().await?.text().await?;
-        let document = Html::parse_document(&response);
+        let response = self.site.client.get(url).send().await?;
+        let response_text = response.text().await?;
+        let document = Html::parse_document(&response_text);
 
+        Ok(document)
+    }
+
+    async fn parse(&mut self) -> Result<Vec<Day>, MyError> {
+        if self.date.week == 0 {
+            self.assign_current_week().await?;
+        }
+        let mut url = self.site.url.clone();
+
+        if self.date.week != 0 {
+            url += &format!("&selectedWeek={}", self.date.week);
+        }
+
+        if self.date.weekday != 0 {
+            url += &format!("&selectedWeekday={}", self.date.weekday);
+        }
+
+        let response = self.site.client.get(url).send().await?;
+        let response_text = response.text().await?;
+        let document = Html::parse_document(&response_text);
+
+        //let document = loop {
+        //    match self.fetch_html().await {
+        //        Ok(html) => {
+        //            break html;
+        //        }
+        //        Err(err) => {
+        //            log::error!("Error fetching html: {}", err.to_string());
+        //            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        //        }
+        //    }
+        //
+        //    log::info!("Снова запрашиваю html...");
+        //};
+
+
+        let selectors = Selectors::new();
         let container_selector = Selector::parse(".schedule__items > div").unwrap();
-        let time_item_selector = Selector::parse(".schedule__time-item").unwrap();
         let lesson_selector = Selector::parse(".schedule__lesson").unwrap();
-        let disc_selector = Selector::parse(".schedule__discipline").unwrap();
-        let place_selector = Selector::parse(".schedule__place").unwrap();
-        let teacher_selector = Selector::parse(".schedule__teacher").unwrap();
-        let groups_selector = Selector::parse(".schedule__groups").unwrap();
-        let type_selector = Selector::parse(".schedule__lesson-type-chip").unwrap();
 
-        let mut weekly_storage: Vec<Vec<Lesson>> = vec![vec![]; 7];
+        let mut weekly_storage: Vec<Day> = vec![Day::default(); 7];
         let mut lesson_time = String::new();
         let mut day_index = 0;
 
@@ -176,7 +238,7 @@ impl Schedule {
 
             if class_attr.contains("schedule__time") {
                 let times: Vec<_> = element
-                    .select(&time_item_selector)
+                    .select(&selectors.time)
                     .map(|e| e.text().collect::<String>().trim().to_string())
                     .collect();
                 if times.len() >= 2 {
@@ -189,38 +251,38 @@ impl Schedule {
             if class_attr.contains("schedule__item") && !class_attr.contains("schedule__head") {
                 for lesson_node in element.select(&lesson_selector) {
                     let discipline = lesson_node
-                        .select(&disc_selector)
+                        .select(&selectors.disc)
                         .next()
                         .map(|e| e.text().collect::<String>().trim().to_string())
                         .unwrap_or_default();
 
                     if !discipline.is_empty() {
                         let place = lesson_node
-                            .select(&place_selector)
+                            .select(&selectors.place)
                             .next()
                             .map(|e| e.text().collect::<String>().trim().to_string())
                             .unwrap_or_else(|| "---".to_string());
 
                         let teacher = lesson_node
-                            .select(&teacher_selector)
+                            .select(&selectors.teacher)
                             .next()
                             .map(|e| e.text().collect::<String>().trim().to_string())
                             .unwrap_or_default();
 
                         let subgroup = lesson_node
-                            .select(&groups_selector)
+                            .select(&selectors.groups)
                             .next()
                             .map(|e| e.text().collect::<String>().trim().to_string())
                             .unwrap_or_default();
 
                         let lesson_type = lesson_node
-                            .select(&type_selector)
+                            .select(&selectors.lesson_type)
                             .next()
                             .map(|e| e.text().collect::<String>().trim().to_string())
                             .unwrap_or_default();
 
-                        if let Some(day_storage) = weekly_storage.get_mut(day_index) {
-                            day_storage.push(Lesson {
+                        if let Some(day) = weekly_storage.get_mut(day_index) {
+                            day.lessons.push(Lesson {
                                 time: lesson_time.clone(),
                                 discipline,
                                 place,
@@ -279,12 +341,12 @@ impl Schedule {
         &self,
         schedule_text: &mut String,
         index: usize,
-        day_lessons: &Vec<Lesson>,
+        day: &Day,
     ) {
-        let days = self.build_days().await;
-        schedule_text.push_str(&format!("{}\n", days[index]));
+        //let days = self.build_days().await;
+        //schedule_text.push_str(&format!("{}\n", days[index]));
 
-        for lesson in day_lessons {
+        for lesson in &day.lessons {
             schedule_text.push_str(&format!(
                 "<b>{}</b> ({})\n",
                 lesson.discipline, lesson.lesson_type
@@ -305,7 +367,7 @@ impl Schedule {
     }
 
     pub async fn format_week(&self, json: serde_json::Value) -> String {
-        let weekly_storage: Vec<Vec<Lesson>> = match serde_json::from_value(json) {
+        let weekly_storage: Vec<Day> = match serde_json::from_value(json) {
             Ok(schedule) => schedule,
             Err(err) => {
                 log::error!("{}", err.to_string());
@@ -331,7 +393,7 @@ impl Schedule {
     }
 
     pub async fn format_day(&self, json: serde_json::Value) -> String {
-        let weekly_storage: Vec<Vec<Lesson>> = match serde_json::from_value(json) {
+        let weekly_storage: Vec<Day> = match serde_json::from_value(json) {
             Ok(schedule) => schedule,
             Err(err) => {
                 log::error!("{}", err.to_string());
