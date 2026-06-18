@@ -2,7 +2,7 @@ use sqlx::PgPool;
 use teloxide::{prelude::*, types::LinkPreviewOptions, utils::command::BotCommands};
 
 use crate::{
-    bot::Command,
+    bot::{Command, State},
     handler_tree::MyDialogue,
     handlers::{HandlerResult, schedule_handler, setup_handler},
 };
@@ -13,16 +13,21 @@ pub async fn start_handler(bot: Bot, msg: Message) -> HandlerResult {
     let mut start_message = format!(
         "Приветствую, {}!\n\
         Я бот для просмотра расписания СамГУ\n\n\
-        Помимо комманд, доступны фразы(не зависят от регистра):\n\n\
-        начать\n\
-        узнать расписание\n\n",
+        Краткое руководство:\n\
+        Выбираете факультет и группу через /setup\n\
+        (Ваш выбор сохраняется до повторного вызова /setup)\n\
+        После выбора получаете расписание через /schedule\n\n",
         msg.from.unwrap().first_name
     );
 
-    start_message += &*help_text;
+    start_message.push_str(&help_text);
 
-    start_message += "\n\nДля тех, кто хочет помочь с разработкой бота:\n\
-        https://github.com/NeuroBreaker/schedule_bot";
+    start_message.push_str("\n\nПомимо комманд, доступны фразы(не зависят от регистра):\n\n\
+        - начать\n\
+        - расписание\n\n\
+        Связь с разработчиком: @rodionr07\n\
+        Для тех, кто желает внести свой вклад в разработку бота:\n\
+        https://github.com/NeuroBreaker/schedule_bot");
 
     bot.send_message(msg.chat.id, start_message)
         .link_preview_options(LinkPreviewOptions {
@@ -38,7 +43,7 @@ pub async fn start_handler(bot: Bot, msg: Message) -> HandlerResult {
 }
 
 pub async fn cancel_handler(dialogue: MyDialogue) -> HandlerResult {
-    dialogue.exit().await?;
+    dialogue.update(State::Start).await?;
     Ok(())
 }
 
@@ -55,7 +60,7 @@ pub async fn message_handler(
         "начать" => {
             setup_handler(bot, dialogue, msg, pool).await?;
         }
-        "узнать расписание" => {
+        "расписание" => {
             schedule_handler(bot, msg, dialogue, pool).await?;
         }
         _ => {

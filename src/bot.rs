@@ -14,7 +14,7 @@ pub enum Command {
     Cancel,
     #[command(description = "choose your institute and group")]
     Setup,
-    #[command(description = "get your week schedule")]
+    #[command(description = "get your schedule")]
     Schedule,
 }
 
